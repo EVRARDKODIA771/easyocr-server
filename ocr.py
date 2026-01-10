@@ -10,6 +10,10 @@ def main():
 
     file_path = sys.argv[1]
 
+    # Dossier temporaire pour OCR (compatible Docker/Render)
+    UPLOAD_DIR = os.environ.get('UPLOAD_DIR', '/tmp/uploads')
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+
     # Crée le lecteur OCR (anglais et français)
     reader = easyocr.Reader(['en', 'fr'])
 
@@ -17,10 +21,9 @@ def main():
 
     # Vérifie si c'est un PDF
     if file_path.lower().endswith(".pdf"):
-        # Convertit le PDF en images (une image par page)
-        poppler_path = r"C:\Poppler\poppler-24.07.0\Library\bin"  # chemin correct vers Poppler
         try:
-            images = convert_from_path(file_path, dpi=300, poppler_path=poppler_path)
+            # Sur Render, poppler est installé via Docker et dans le PATH
+            images = convert_from_path(file_path, dpi=300)
         except Exception as e:
             print("⚠️ Impossible de convertir le PDF :", e)
             sys.exit(0)
@@ -33,7 +36,7 @@ def main():
     for i, img in enumerate(images):
         # Si img est un objet PIL (PDF converti), sauvegarde temporairement
         if not isinstance(img, str):
-            temp_img_path = "temp_ocr_image.png"
+            temp_img_path = os.path.join(UPLOAD_DIR, f"temp_ocr_image_{i}.png")
             img.save(temp_img_path)
             results = reader.readtext(temp_img_path)
             os.remove(temp_img_path)

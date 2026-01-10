@@ -18,11 +18,11 @@ function log(message) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ====== UPLOADS DIR ======
-const UPLOAD_DIR = path.join(__dirname, "uploads");
+// ====== UPLOADS DIR (compatible Docker/Render) ======
+const UPLOAD_DIR = process.env.UPLOAD_DIR || "/tmp/uploads";
 if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR);
-  log("📁 Dossier uploads créé");
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  log(`📁 Dossier uploads créé : ${UPLOAD_DIR}`);
 }
 
 // ====== ROUTES ======
@@ -98,7 +98,7 @@ app.post("/ocr", async (req, res) => {
 });
 
 // ====== SERVER ======
-const PORT = 3000;
+const PORT = process.env.PORT || 3000; // Render fournit process.env.PORT
 app.listen(PORT, () => {
-  log(`🚀 Server running on http://localhost:${PORT}`);
+  log(`🚀 Server running on port ${PORT}`);
 });
