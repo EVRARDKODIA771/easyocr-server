@@ -1,0 +1,17 @@
+# Ignorer le contenu du dossier uploads (les fichiers uploadés)
+uploads/*
+
+# Mais garder le dossier uploads lui-même avec un fichier vide .gitkeep
+!uploads/.gitkeep
+
+# Ignorer ton environnement Python local
+ocr-env/
+
+# Ignorer les caches Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignorer logs ou fichiers temporaires
+*.log
