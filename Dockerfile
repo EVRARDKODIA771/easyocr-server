@@ -4,10 +4,12 @@ FROM node:22
 # === Étape 2 : Installer Python 3, dépendances système et Poppler ===
 RUN apt-get update && \
     apt-get install -y \
-        python3 python3-pip python3-dev \
+        python3 python3-dev \
+        python3-venv \
         build-essential \
         libsm6 libxext6 libxrender-dev libglib2.0-0 libjpeg-dev \
-        poppler-utils && \
+        poppler-utils \
+        ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
 # === Étape 3 : Définir le répertoire de travail ===
@@ -20,9 +22,10 @@ COPY requirements.txt ./
 # === Étape 5 : Installer les dépendances ===
 RUN npm install
 
-# Upgrade pip et installer les paquets Python séparément pour faciliter le debug
-RUN pip3 install --upgrade pip setuptools wheel
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Installer pip et packages Python sans utiliser directement "pip3 install --upgrade pip"
+RUN python3 -m ensurepip --upgrade
+RUN python3 -m pip install --no-cache-dir --upgrade setuptools wheel
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 # === Étape 6 : Copier le reste du projet ===
 COPY . .
