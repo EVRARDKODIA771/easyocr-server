@@ -24,12 +24,9 @@ RUN npm install
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# === Installer torch et EasyOCR dependencies ===
-# PyTorch CPU wheel officiel (sans GPU) :
-RUN pip install --no-cache-dir torch==2.9.1 torchvision==0.16.1 --index-url https://download.pytorch.org/whl/cpu
-
-# Installer le reste des dépendances Python
-RUN pip install --no-cache-dir -r requirements.txt
+# === Installer PyTorch CPU et EasyOCR + autres dépendances ===
+RUN pip install --no-cache-dir -r requirements.txt \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
 # === Copier le code du projet ===
 COPY . .
