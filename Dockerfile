@@ -1,42 +1,44 @@
-# === BASE IMAGE (Node + Python) ===
+# === Base image Node ===
 FROM node:22
 
-# === INSTALL SYSTEM DEPENDENCIES ===
-RUN apt-get update && \
-    apt-get install -y \
-        python3 python3-dev \
-        build-essential \
-        libsm6 libxext6 libxrender-dev libglib2.0-0 libjpeg-dev \
-        poppler-utils \
-        ca-certificates curl wget && \
+# === Installer dépendances système pour Python & OCR ===
+RUN apt-get update && apt-get install -y \
+    python3 python3-venv python3-dev \
+    build-essential \
+    libsm6 libxext6 libxrender-dev libglib2.0-0 libjpeg-dev \
+    poppler-utils \
+    ca-certificates curl wget && \
     rm -rf /var/lib/apt/lists/*
 
-# === WORKDIR ===
+# === Répertoire de travail ===
 WORKDIR /usr/src/app
 
-# === COPY DEPENDENCY FILES ===
+# === Copier les fichiers de dépendances ===
 COPY package*.json ./
 COPY requirements.txt ./
 
-# === INSTALL NODE DEPENDENCIES ===
+# === Installer dépendances Node ===
 RUN npm install
 
-# === INSTALL PIP (SCRIPT OFFICIEL) ===
-RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
-    python3 get-pip.py && \
-    rm get-pip.py
+# === Créer & activer un virtualenv Python ===
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# === INSTALL PYTHON DEPENDENCIES ===
-RUN python3 -m pip install --no-cache-dir -r requirements.txt
+# === Installer torch et EasyOCR dependencies ===
+# PyTorch CPU wheel officiel (sans GPU) :
+RUN pip install --no-cache-dir torch==2.9.1 torchvision==0.16.1 --index-url https://download.pytorch.org/whl/cpu
 
-# === COPY PROJECT FILES ===
+# Installer le reste des dépendances Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# === Copier le code du projet ===
 COPY . .
 
-# === CREATE TEMP UPLOAD DIR ===
+# === Créer le dossier temporaire OCR ===
 RUN mkdir -p /tmp/uploads
 
-# === EXPOSE PORT ===
+# === Exposer le port Node ===
 EXPOSE 3000
 
-# === START ===
+# === Démarrer le serveur ===
 CMD ["node", "server.js"]
