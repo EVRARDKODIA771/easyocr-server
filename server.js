@@ -3,6 +3,7 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { spawn } from "child_process";
 
 const app = express();
 app.use(express.json());
@@ -79,26 +80,52 @@ app.post("/ocr", async (req, res) => {
     log(`📂 Fichier : ${filePath}`);
     log(`📦 Taille : ${stats.size} octets`);
 
-    res.json({
-      success: true,
-      message: "Image téléchargée avec succès",
-      fileName,
-      filePath,
-      size: stats.size,
-      contentType
+    // === 📌 ON APPELLE LE SCRIPT PYTHON OCR ===
+    log("🚀 Appel OCR Python pour :", filePath);
+
+    const pythonProcess = spawn("python3", [
+      path.join(__dirname, "ocr.py"),
+      filePath
+    ]);
+
+    let ocrOutput = "";
+    let ocrError = "";
+
+    pythonProcess.stdout.on("data", (data) => {
+      ocrOutput += data.toString();
+    });
+
+    pythonProcess.stderr.on("data", (data) => {
+      ocrError += data.toString();
+    });
+
+    pythonProcess.on("close", (code) => {
+      log(`🧠 Python OCR process finished with code: ${code}`);
+
+      if (ocrError) {
+        log("❌ Error from Python OCR:", ocrError);
+      }
+
+      const text = ocrOutput.trim();
+      log("📨 Text extracted from OCR:", text);
+
+      return res.json({
+        success: true,
+        ocrText: text
+      });
     });
 
   } catch (err) {
-    log(`❌ Erreur téléchargement : ${err.message}`);
-    res.status(500).json({
-      error: "Téléchargement impossible",
+    log(`❌ Erreur téléchargement ou OCR : ${err.message}`);
+    return res.status(500).json({
+      error: "Téléchargement ou OCR impossible",
       details: err.message
     });
   }
 });
 
 // ====== SERVER ======
-const PORT = process.env.PORT || 3000; // Render fournit process.env.PORT
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   log(`🚀 Server running on port ${PORT}`);
 });
