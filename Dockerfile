@@ -1,11 +1,10 @@
 # === Étape 1 : Base Node.js ===
 FROM node:22
 
-# === Étape 2 : Installer Python 3, dépendances système et Poppler ===
+# === Étape 2 : Installer Python 3, dépendances système & Poppler ===
 RUN apt-get update && \
     apt-get install -y \
         python3 python3-dev \
-        python3-venv \
         build-essential \
         libsm6 libxext6 libxrender-dev libglib2.0-0 libjpeg-dev \
         poppler-utils \
@@ -19,22 +18,20 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 COPY requirements.txt ./
 
-# === Étape 5 : Installer les dépendances ===
+# === Étape 5 : Installer les dépendances Node ===
 RUN npm install
 
-# Installer pip et packages Python sans utiliser directement "pip3 install --upgrade pip"
-RUN python3 -m ensurepip --upgrade
-RUN python3 -m pip install --no-cache-dir --upgrade setuptools wheel
-RUN python3 -m pip install --no-cache-dir -r requirements.txt
+# === Étape 6 : Installer les dépendances Python avec override ===
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt
 
-# === Étape 6 : Copier le reste du projet ===
+# === Étape 7 : Copier le reste du projet ===
 COPY . .
 
-# === Étape 7 : Créer le dossier temporaire pour OCR ===
+# === Étape 8 : Créer le dossier temporaire pour OCR ===
 RUN mkdir -p /tmp/uploads
 
-# === Étape 8 : Exposer le port pour Render ===
+# === Étape 9 : Exposer le port pour Render ===
 EXPOSE 3000
 
-# === Étape 9 : Start command ===
+# === Étape 10 : Start command ===
 CMD ["node", "server.js"]
