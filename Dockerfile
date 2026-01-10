@@ -1,37 +1,42 @@
-# === Étape 1 : Base Node.js ===
+# === BASE IMAGE (Node + Python) ===
 FROM node:22
 
-# === Étape 2 : Installer Python 3, dépendances système & Poppler ===
+# === INSTALL SYSTEM DEPENDENCIES ===
 RUN apt-get update && \
     apt-get install -y \
         python3 python3-dev \
         build-essential \
         libsm6 libxext6 libxrender-dev libglib2.0-0 libjpeg-dev \
         poppler-utils \
-        ca-certificates curl && \
+        ca-certificates curl wget && \
     rm -rf /var/lib/apt/lists/*
 
-# === Étape 3 : Définir le répertoire de travail ===
+# === WORKDIR ===
 WORKDIR /usr/src/app
 
-# === Étape 4 : Copier les fichiers de dépendances ===
+# === COPY DEPENDENCY FILES ===
 COPY package*.json ./
 COPY requirements.txt ./
 
-# === Étape 5 : Installer les dépendances Node ===
+# === INSTALL NODE DEPENDENCIES ===
 RUN npm install
 
-# === Étape 6 : Installer les dépendances Python avec override ===
-RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt
+# === INSTALL PIP (SCRIPT OFFICIEL) ===
+RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
+    python3 get-pip.py && \
+    rm get-pip.py
 
-# === Étape 7 : Copier le reste du projet ===
+# === INSTALL PYTHON DEPENDENCIES ===
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
+
+# === COPY PROJECT FILES ===
 COPY . .
 
-# === Étape 8 : Créer le dossier temporaire pour OCR ===
+# === CREATE TEMP UPLOAD DIR ===
 RUN mkdir -p /tmp/uploads
 
-# === Étape 9 : Exposer le port pour Render ===
+# === EXPOSE PORT ===
 EXPOSE 3000
 
-# === Étape 10 : Start command ===
+# === START ===
 CMD ["node", "server.js"]
