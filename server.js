@@ -40,82 +40,73 @@ app.get("/", (req, res) => {
 app.post("/ocr", async (req, res) => {
   log("➡️ POST /ocr reçu");
 
-  const { fileUrl } = req.body;
+  const { fileUrl, callbackUrl } = req.body;
 
-  if (!fileUrl) {
-    log("⚠️ fileUrl manquante");
-    return res.status(400).json({ error: "fileUrl manquante" });
+  if (!fileUrl || !callbackUrl) {
+    log("⚠️ fileUrl ou callbackUrl manquant");
+    return res.status(400).json({ error: "fileUrl ou callbackUrl manquant" });
   }
 
-  // ✅ 1. RÉPONSE IMMÉDIATE À WIX (ANTI 504)
+  // ✅ Réponse immédiate
   res.json({
     success: true,
     message: "OCR lancé en arrière-plan"
   });
 
-  // ✅ 2. TRAITEMENT OCR EN BACKGROUND
+  // 🔁 OCR BACKGROUND
   (async () => {
     try {
-      log(`📥 Téléchargement fichier : ${fileUrl}`);
+      log(`📥 Téléchargement : ${fileUrl}`);
 
       const response = await axios.get(fileUrl, {
         responseType: "stream",
-        timeout: 15000,
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "Accept": "*/*"
-        }
+        timeout: 15000
       });
 
-      const contentType = response.headers["content-type"] || "";
-      log(`📄 Content-Type : ${contentType}`);
-
-      const ext =
-        contentType.includes("pdf") ? "pdf" :
-        contentType.includes("png") ? "png" :
-        contentType.includes("jpeg") || contentType.includes("jpg") ? "jpg" :
-        "bin";
-
-      const fileName = `ocr_${Date.now()}.${ext}`;
-      const filePath = path.join(UPLOAD_DIR, fileName);
+      const filePath = path.join(
+        UPLOAD_DIR,
+        `ocr_${Date.now()}.pdf`
+      );
 
       const writer = fs.createWriteStream(filePath);
       response.data.pipe(writer);
+      await new Promise(r => writer.on("finish", r));
 
-      await new Promise((resolve, reject) => {
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-      });
+      log(`✅ Fichier prêt : ${filePath}`);
 
-      const stats = fs.statSync(filePath);
-      log(`✅ Fichier téléchargé : ${filePath}`);
-      log(`📦 Taille : ${stats.size} octets`);
-
-      // === 🚀 LANCEMENT OCR PYTHON (NON BLOQUANT)
-      log(`🚀 Lancement OCR Python : ${filePath}`);
-
-      const pythonProcess = spawn("python3", [
+      const python = spawn("python3", [
         path.join(__dirname, "ocr.py"),
         filePath
       ]);
 
-      pythonProcess.stdout.on("data", (data) => {
-        log(`🧠 OCR OUTPUT ➜ ${data.toString().trim()}`);
+      let ocrText = "";
+
+      python.stdout.on("data", (data) => {
+        ocrText += data.toString();
       });
 
-      pythonProcess.stderr.on("data", (data) => {
-        log(`❌ OCR ERROR ➜ ${data.toString().trim()}`);
+      python.stderr.on("data", (data) => {
+        log(`❌ OCR ERROR ➜ ${data.toString()}`);
       });
 
-      pythonProcess.on("close", (code) => {
-        log(`🏁 OCR terminé (code ${code})`);
+      python.on("close", async () => {
+        log("🧠 OCR TERMINÉ");
+        log("🧠 TEXTE OCR :", ocrText);
+
+        // 🔁 ENVOI VERS WIX
+        await axios.post(callbackUrl, {
+          text: ocrText.trim()
+        });
+
+        log("📨 TEXTE OCR envoyé vers Wix");
       });
 
     } catch (err) {
-      log(`❌ Erreur OCR background : ${err.message}`);
+      log(`❌ Erreur OCR : ${err.message}`);
     }
   })();
 });
+
 
 // ====== SERVER ======
 const PORT = process.env.PORT || 3000;
