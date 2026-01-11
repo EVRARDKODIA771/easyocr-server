@@ -19,13 +19,13 @@ function log(msg) {
   console.log(`[${ts}] ${msg}`);
 }
 
-// GET test
+// === GET test
 app.get("/", (req, res) => {
   log(`🌐 GET /`);
   res.send("OCR Server running");
 });
 
-// POST OCR
+// === POST OCR
 app.post("/ocr", async (req, res) => {
   log("➡️ POST /ocr reçu");
 
@@ -33,6 +33,7 @@ app.post("/ocr", async (req, res) => {
   if (!fileUrl) return res.status(400).json({ error: "fileUrl manquante" });
 
   try {
+    // Téléchargement du fichier depuis Wix
     log(`📥 Téléchargement fichier : ${fileUrl}`);
     const response = await axios.get(fileUrl, { responseType: "stream" });
 
@@ -44,33 +45,61 @@ app.post("/ocr", async (req, res) => {
       writer.on("finish", resolve);
       writer.on("error", reject);
     });
-
     log(`✅ Fichier téléchargé : ${filePath}`);
 
+    // Lancer OCR Python
     const py = spawn("python3", [path.join(__dirname, "ocr.py"), filePath]);
 
     let ocrOutput = "";
     let ocrError = "";
 
-    py.stdout.on("data", (data) => ocrOutput += data.toString());
-    py.stderr.on("data", (data) => ocrError += data.toString());
+    py.stdout.on("data", (data) => {
+      const text = data.toString();
+      ocrOutput += text;
+      // Affiche les logs Python en direct
+      log(`🐍 PYTHON STDOUT: ${text.trim()}`);
+    });
+
+    py.stderr.on("data", (data) => {
+      const text = data.toString();
+      ocrError += text;
+      log(`🐍 PYTHON STDERR: ${text.trim()}`);
+    });
 
     py.on("close", async (code) => {
-      if (ocrError) log(`❌ OCR ERROR ➜ ${ocrError.trim()}`);
-      const text = ocrOutput.trim() || "texte illisible";
-      log(`🧠 TEXTE OCR ➜ ${text}`);
+      log(`🔚 Process Python terminé avec code ${code}`);
+
+      if (ocrError) log(`❌ OCR STDERR ➜ ${ocrError.trim()}`);
+
+      // Récupérer le JSON final de ocr.py (dernière ligne JSON)
+      let finalText = "";
+      try {
+        const lines = ocrOutput.split("\n").reverse();
+        const jsonLine = lines.find(line => line.trim().startsWith("{") && line.includes('"status"'));
+        if (jsonLine) {
+          const jsonOutput = JSON.parse(jsonLine);
+          finalText = jsonOutput.text || "";
+        } else {
+          finalText = "texte illisible";
+        }
+      } catch (err) {
+        log(`❌ Erreur parsing JSON OCR: ${err.message}`);
+        finalText = "texte illisible";
+      }
+
+      log(`🧠 TEXTE FINAL OCR (${finalText.length} chars) : ${finalText.slice(0, 200)}...`);
 
       // Callback vers Wix
       if (callbackUrl) {
         try {
-          await axios.post(callbackUrl, { text });
+          await axios.post(callbackUrl, { text: finalText });
           log(`📡 Callback envoyé vers Wix`);
         } catch (err) {
           log(`⚠️ Callback échoué : ${err.message}`);
         }
       }
 
-      res.json({ success: true, message: "OCR lancé en arrière-plan" });
+      res.json({ success: true, text: finalText });
     });
 
   } catch (err) {
