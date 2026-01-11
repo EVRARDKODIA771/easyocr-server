@@ -19,7 +19,7 @@ function log(message) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ====== UPLOADS DIR (compatible Docker/Render) ======
+// ====== UPLOADS DIR ======
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/tmp/uploads";
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -32,6 +32,11 @@ app.get("/", (req, res) => {
   res.send("EasyOCR proxy is running");
 });
 
+/**
+ * ============================
+ * OCR — RÉPONSE IMMÉDIATE
+ * ============================
+ */
 app.post("/ocr", async (req, res) => {
   log("➡️ POST /ocr reçu");
 
@@ -42,86 +47,74 @@ app.post("/ocr", async (req, res) => {
     return res.status(400).json({ error: "fileUrl manquante" });
   }
 
-  try {
-    log(`📥 Début téléchargement : ${fileUrl}`);
+  // ✅ 1. RÉPONSE IMMÉDIATE À WIX (ANTI 504)
+  res.json({
+    success: true,
+    message: "OCR lancé en arrière-plan"
+  });
 
-    const response = await axios.get(fileUrl, {
-      responseType: "stream",
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "*/*"
-      },
-      timeout: 15000
-    });
+  // ✅ 2. TRAITEMENT OCR EN BACKGROUND
+  (async () => {
+    try {
+      log(`📥 Téléchargement fichier : ${fileUrl}`);
 
-    const contentType = response.headers["content-type"];
-    log(`📄 Content-Type détecté : ${contentType}`);
-
-    const ext =
-      contentType?.includes("png") ? "png" :
-      contentType?.includes("jpeg") ? "jpg" :
-      contentType?.includes("jpg") ? "jpg" :
-      "img";
-
-    const fileName = `image_${Date.now()}.${ext}`;
-    const filePath = path.join(UPLOAD_DIR, fileName);
-
-    const writer = fs.createWriteStream(filePath);
-    response.data.pipe(writer);
-
-    await new Promise((resolve, reject) => {
-      writer.on("finish", resolve);
-      writer.on("error", reject);
-    });
-
-    const stats = fs.statSync(filePath);
-
-    log(`✅ Téléchargement terminé`);
-    log(`📂 Fichier : ${filePath}`);
-    log(`📦 Taille : ${stats.size} octets`);
-
-    // === 📌 ON APPELLE LE SCRIPT PYTHON OCR ===
-    log("🚀 Appel OCR Python pour :", filePath);
-
-    const pythonProcess = spawn("python3", [
-      path.join(__dirname, "ocr.py"),
-      filePath
-    ]);
-
-    let ocrOutput = "";
-    let ocrError = "";
-
-    pythonProcess.stdout.on("data", (data) => {
-      ocrOutput += data.toString();
-    });
-
-    pythonProcess.stderr.on("data", (data) => {
-      ocrError += data.toString();
-    });
-
-    pythonProcess.on("close", (code) => {
-      log(`🧠 Python OCR process finished with code: ${code}`);
-
-      if (ocrError) {
-        log("❌ Error from Python OCR:", ocrError);
-      }
-
-      const text = ocrOutput.trim();
-      log("📨 Text extracted from OCR:", text);
-
-      return res.json({
-        success: true,
-        ocrText: text
+      const response = await axios.get(fileUrl, {
+        responseType: "stream",
+        timeout: 15000,
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Accept": "*/*"
+        }
       });
-    });
 
-  } catch (err) {
-    log(`❌ Erreur téléchargement ou OCR : ${err.message}`);
-    return res.status(500).json({
-      error: "Téléchargement ou OCR impossible",
-      details: err.message
-    });
-  }
+      const contentType = response.headers["content-type"] || "";
+      log(`📄 Content-Type : ${contentType}`);
+
+      const ext =
+        contentType.includes("pdf") ? "pdf" :
+        contentType.includes("png") ? "png" :
+        contentType.includes("jpeg") || contentType.includes("jpg") ? "jpg" :
+        "bin";
+
+      const fileName = `ocr_${Date.now()}.${ext}`;
+      const filePath = path.join(UPLOAD_DIR, fileName);
+
+      const writer = fs.createWriteStream(filePath);
+      response.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+      });
+
+      const stats = fs.statSync(filePath);
+      log(`✅ Fichier téléchargé : ${filePath}`);
+      log(`📦 Taille : ${stats.size} octets`);
+
+      // === 🚀 LANCEMENT OCR PYTHON (NON BLOQUANT)
+      log(`🚀 Lancement OCR Python : ${filePath}`);
+
+      const pythonProcess = spawn("python3", [
+        path.join(__dirname, "ocr.py"),
+        filePath
+      ]);
+
+      pythonProcess.stdout.on("data", (data) => {
+        log(`🧠 OCR OUTPUT ➜ ${data.toString().trim()}`);
+      });
+
+      pythonProcess.stderr.on("data", (data) => {
+        log(`❌ OCR ERROR ➜ ${data.toString().trim()}`);
+      });
+
+      pythonProcess.on("close", (code) => {
+        log(`🏁 OCR terminé (code ${code})`);
+      });
+
+    } catch (err) {
+      log(`❌ Erreur OCR background : ${err.message}`);
+    }
+  })();
 });
 
 // ====== SERVER ======
