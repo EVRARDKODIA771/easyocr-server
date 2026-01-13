@@ -3,88 +3,101 @@ import easyocr
 from pdf2image import convert_from_path
 import os
 import traceback
-import json
+
+def log(msg):
+    print(msg, file=sys.stderr, flush=True)
 
 def main():
-    print("🔔 OCR PROCESS STARTED")
+    log("🔔 OCR PROCESS STARTED")
 
     if len(sys.argv) < 2:
-        print("⚠️ Aucun fichier fourni en argument")
-        print(json.dumps({"status": "error", "text": ""}))
-        sys.exit(0)
+        log("⚠️ Aucun fichier fourni en argument")
+        sys.exit(1)
 
     file_path = sys.argv[1]
-    print(f"📥 Fichier OCR à traiter : {file_path}")
+    log(f"📥 Fichier OCR à traiter : {file_path}")
 
-    UPLOAD_DIR = os.environ.get('UPLOAD_DIR', '/tmp/uploads')
+    UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/uploads")
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    print(f"📁 Répertoire de travail : {UPLOAD_DIR}")
 
+    # =========================
+    # INIT EASYOCR
+    # =========================
     try:
-        reader = easyocr.Reader(['fr', 'en'], gpu=False)
-        print("🧠 EasyOCR Reader chargé avec succès")
+        reader = easyocr.Reader(["fr", "en"], gpu=False)
+        log("🧠 EasyOCR Reader chargé")
     except Exception as e:
-        print("❌ Erreur init EasyOCR :", e)
-        traceback.print_exc()
-        print(json.dumps({"status": "error", "text": ""}))
-        sys.exit(0)
+        log("❌ Erreur init EasyOCR")
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
 
+    # =========================
+    # CHARGEMENT DES IMAGES
+    # =========================
     images = []
 
-    if file_path.lower().endswith(".pdf"):
-        try:
-            print("📄 Conversion PDF -> images ...")
+    try:
+        if file_path.lower().endswith(".pdf"):
+            log("📄 Conversion PDF -> images")
             images = convert_from_path(file_path, dpi=300)
-            print(f"✅ PDF converti en {len(images)} image(s)")
-        except Exception as e:
-            print("❌ Erreur conversion PDF :", e)
-            traceback.print_exc()
-            print(json.dumps({"status": "error", "text": ""}))
-            sys.exit(0)
-    else:
-        print("🖼️ Fichier image détecté")
-        images = [file_path]
+            log(f"✅ PDF converti : {len(images)} page(s)")
+        else:
+            log("🖼️ Fichier image détecté")
+            images = [file_path]
+    except Exception as e:
+        log("❌ Erreur conversion PDF/image")
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
 
+    # =========================
+    # OCR
+    # =========================
     all_text = []
 
     for i, img in enumerate(images):
-        print(f"🔎 Traitement page/image {i+1} sur {len(images)}")
-        try:
-            if not isinstance(img, str):
-                temp_img_path = os.path.join(UPLOAD_DIR, f"temp_ocr_image_{i}.png")
-                img.save(temp_img_path, format="PNG")
-                img_to_process = temp_img_path
-                print(f"📌 Image temporaire créée : {temp_img_path}")
-            else:
-                img_to_process = img
-                print(f"📌 Utilisation directe du fichier image : {img_to_process}")
+        log(f"🔎 OCR page/image {i + 1}/{len(images)}")
 
-            results = reader.readtext(img_to_process, detail=0)
-            print(f"📊 OCR page {i+1} : {results}")
+        temp_img_path = None
+        try:
+            if isinstance(img, str):
+                img_path = img
+            else:
+                temp_img_path = os.path.join(
+                    UPLOAD_DIR, f"temp_ocr_page_{i}.png"
+                )
+                img.save(temp_img_path, format="PNG")
+                img_path = temp_img_path
+
+            results = reader.readtext(img_path, detail=0, paragraph=True)
 
             if results:
-                all_text.extend(results)
-                print(f"✅ Texte détecté page {i+1} ({len(results)} segments)")
+                all_text.append("\n".join(results))
+                log(f"✅ Texte détecté ({len(results)} segments)")
             else:
-                print(f"⚠️ Aucun texte détecté page {i+1}")
+                log("⚠️ Aucun texte détecté")
 
-        except Exception as e:
-            print(f"❌ Erreur OCR page {i+1} :", e)
-            traceback.print_exc()
+        except Exception:
+            log("❌ Erreur OCR page")
+            traceback.print_exc(file=sys.stderr)
 
         finally:
-            if not isinstance(img, str):
+            if temp_img_path and os.path.exists(temp_img_path):
                 try:
                     os.remove(temp_img_path)
-                    print(f"🗑️ Image temporaire supprimée : {temp_img_path}")
-                except OSError as err:
-                    print("⚠️ Erreur suppression image temporaire :", err)
+                except OSError:
+                    pass
 
-    final_text = " ".join(all_text) if all_text else ""
-    print(f"🟢 TEXTE FINAL OCR ({len(final_text)} chars) : {final_text[:200]}...")  # log 200 premiers caractères
+    # =========================
+    # SORTIE FINALE
+    # =========================
+    final_text = "\n\n".join(all_text).strip()
 
-    # ⚡ On renvoie le résultat JSON pour server.js
-    print(json.dumps({"status": "ok", "text": final_text}))
+    log(f"🟢 OCR TERMINÉ ({len(final_text)} caractères)")
+
+    # ⚠️ TRÈS IMPORTANT
+    # stdout = TEXTE OCR UNIQUEMENT
+    print(final_text, flush=True)
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

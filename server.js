@@ -2,6 +2,7 @@ import express from "express";
 import axios from "axios";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
 
@@ -14,99 +15,139 @@ const __dirname = path.dirname(__filename);
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/tmp/uploads";
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+/* =========================
+   JOBS STORAGE (POLLING)
+========================= */
+const jobs = {}; // { jobId: { status, text, error, startedAt } }
+
+/* =========================
+   UTILS
+========================= */
 function log(msg) {
   const ts = new Date().toISOString().replace("T", " ").replace("Z", "");
   console.log(`[${ts}] ${msg}`);
 }
 
-// === GET test
+/* =========================
+   GET /
+========================= */
 app.get("/", (req, res) => {
-  log(`🌐 GET /`);
-  res.send("OCR Server running");
+  log("🌐 GET /");
+  res.send("OCR Server (Polling) running");
 });
 
-// === POST OCR
-app.post("/ocr", async (req, res) => {
-  log("➡️ POST /ocr reçu");
+/* =========================
+   POST /ocr/start
+========================= */
+app.post("/ocr/start", async (req, res) => {
+  log("➡️ POST /ocr/start reçu");
 
-  const { fileUrl, callbackUrl } = req.body;
-  if (!fileUrl) return res.status(400).json({ error: "fileUrl manquante" });
-
-  try {
-    // Téléchargement du fichier depuis Wix
-    log(`📥 Téléchargement fichier : ${fileUrl}`);
-    const response = await axios.get(fileUrl, { responseType: "stream" });
-
-    const filePath = path.join(UPLOAD_DIR, `ocr_${Date.now()}.pdf`);
-    const writer = fs.createWriteStream(filePath);
-    response.data.pipe(writer);
-
-    await new Promise((resolve, reject) => {
-      writer.on("finish", resolve);
-      writer.on("error", reject);
-    });
-    log(`✅ Fichier téléchargé : ${filePath}`);
-
-    // Lancer OCR Python
-    const py = spawn("python3", [path.join(__dirname, "ocr.py"), filePath]);
-
-    let ocrOutput = "";
-    let ocrError = "";
-
-    py.stdout.on("data", (data) => {
-      const text = data.toString();
-      ocrOutput += text;
-      // Affiche les logs Python en direct
-      log(`🐍 PYTHON STDOUT: ${text.trim()}`);
-    });
-
-    py.stderr.on("data", (data) => {
-      const text = data.toString();
-      ocrError += text;
-      log(`🐍 PYTHON STDERR: ${text.trim()}`);
-    });
-
-    py.on("close", async (code) => {
-      log(`🔚 Process Python terminé avec code ${code}`);
-
-      if (ocrError) log(`❌ OCR STDERR ➜ ${ocrError.trim()}`);
-
-      // Récupérer le JSON final de ocr.py (dernière ligne JSON)
-      let finalText = "";
-      try {
-        const lines = ocrOutput.split("\n").reverse();
-        const jsonLine = lines.find(line => line.trim().startsWith("{") && line.includes('"status"'));
-        if (jsonLine) {
-          const jsonOutput = JSON.parse(jsonLine);
-          finalText = jsonOutput.text || "";
-        } else {
-          finalText = "texte illisible";
-        }
-      } catch (err) {
-        log(`❌ Erreur parsing JSON OCR: ${err.message}`);
-        finalText = "texte illisible";
-      }
-
-      log(`🧠 TEXTE FINAL OCR (${finalText.length} chars) : ${finalText.slice(0, 200)}...`);
-
-      // Callback vers Wix
-      if (callbackUrl) {
-        try {
-          await axios.post(callbackUrl, { text: finalText });
-          log(`📡 Callback envoyé vers Wix`);
-        } catch (err) {
-          log(`⚠️ Callback échoué : ${err.message}`);
-        }
-      }
-
-      res.json({ success: true, text: finalText });
-    });
-
-  } catch (err) {
-    log(`❌ Erreur OCR : ${err.message}`);
-    res.status(500).json({ error: "OCR impossible", details: err.message });
+  const { fileUrl } = req.body;
+  if (!fileUrl) {
+    return res.status(400).json({ error: "fileUrl manquante" });
   }
+
+  const jobId = crypto.randomUUID();
+  jobs[jobId] = {
+    status: "processing",
+    text: null,
+    error: null,
+    startedAt: Date.now()
+  };
+
+  log(`🆔 JOB CRÉÉ : ${jobId}`);
+
+  (async () => {
+    try {
+      // 📥 Télécharger le fichier
+      log(`📥 Téléchargement fichier : ${fileUrl}`);
+      const response = await axios.get(fileUrl, { responseType: "stream" });
+
+      const filePath = path.join(UPLOAD_DIR, `ocr_${jobId}.pdf`);
+      const writer = fs.createWriteStream(filePath);
+      response.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+      });
+
+      log(`✅ Fichier téléchargé : ${filePath}`);
+
+      // 🐍 Lancer OCR Python
+      const py = spawn("python3", [path.join(__dirname, "ocr.py"), filePath]);
+
+      let ocrOutput = "";
+      let ocrError = "";
+
+      py.stdout.on("data", (data) => {
+        const text = data.toString();
+        ocrOutput += text;
+        log(`🐍 PYTHON STDOUT: ${text.trim()}`);
+      });
+
+      py.stderr.on("data", (data) => {
+        const text = data.toString();
+        ocrError += text;
+        log(`🐍 PYTHON STDERR: ${text.trim()}`);
+      });
+
+      py.on("close", (code) => {
+        log(`🔚 Python terminé (code ${code})`);
+
+        if (code === 0) {
+          jobs[jobId].status = "done";
+          jobs[jobId].text = ocrOutput.trim();
+          log(`✅ OCR OK (${jobs[jobId].text.length} chars)`);
+        } else {
+          jobs[jobId].status = "error";
+          jobs[jobId].error = ocrError || "Erreur OCR";
+          log(`❌ OCR ÉCHEC`);
+        }
+
+        // 🧹 Nettoyage fichier
+        fs.unlink(filePath, () => {});
+      });
+
+    } catch (err) {
+      jobs[jobId].status = "error";
+      jobs[jobId].error = err.message;
+      log(`❌ JOB ERROR : ${err.message}`);
+    }
+  })();
+
+  // ⚡ Réponse immédiate (polling)
+  res.json({ jobId });
 });
 
+/* =========================
+   GET /ocr/status/:jobId
+========================= */
+app.get("/ocr/status/:jobId", (req, res) => {
+  const job = jobs[req.params.jobId];
+
+  if (!job) {
+    return res.status(404).json({ status: "unknown" });
+  }
+
+  res.json(job);
+});
+
+/* =========================
+   CLEANUP JOBS (RAM)
+========================= */
+setInterval(() => {
+  const now = Date.now();
+  for (const id in jobs) {
+    if (now - jobs[id].startedAt > 10 * 60 * 1000) {
+      log(`🧹 Suppression job expiré : ${id}`);
+      delete jobs[id];
+    }
+  }
+}, 5 * 60 * 1000);
+
+/* =========================
+   START SERVER
+========================= */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => log(`🚀 OCR Polling Server running on port ${PORT}`));
