@@ -21,14 +21,22 @@ def main():
     log(f"📥 Fichier OCR à traiter : {file_path}")
 
     UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/uploads")
+    MODEL_DIR = "/tmp/easyocr"
+
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(MODEL_DIR, exist_ok=True)
 
     # =========================
-    # INIT EASYOCR
+    # INIT EASYOCR (CACHE ACTIVÉ)
     # =========================
     try:
-        reader = easyocr.Reader(["fr", "en"], gpu=False)
-        log("🧠 EasyOCR Reader chargé")
+        reader = easyocr.Reader(
+            ["fr", "en"],
+            gpu=False,
+            model_storage_directory=MODEL_DIR,
+            user_network_directory=MODEL_DIR
+        )
+        log("🧠 EasyOCR Reader chargé (cache OK)")
     except Exception:
         log("❌ Erreur init EasyOCR")
         traceback.print_exc(file=sys.stderr)
@@ -100,8 +108,7 @@ def main():
     final_text = "\n\n".join(all_text).strip()
     log(f"🟢 OCR TERMINÉ ({len(final_text)} caractères)")
 
-    # 🚨 TRÈS IMPORTANT
-    # stdout = TEXTE OCR UNIQUEMENT
+    # 🚨 stdout = TEXTE OCR UNIQUEMENT
     print(final_text, flush=True)
 
     sys.exit(0)

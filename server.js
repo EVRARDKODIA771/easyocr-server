@@ -59,7 +59,9 @@ app.post("/ocr/start", async (req, res) => {
 
   (async () => {
     try {
-      // 📥 Télécharger le fichier
+      /* =========================
+         📥 DOWNLOAD FILE
+      ========================= */
       log(`📥 Téléchargement fichier : ${fileUrl}`);
       const response = await axios.get(fileUrl, { responseType: "stream" });
 
@@ -74,16 +76,23 @@ app.post("/ocr/start", async (req, res) => {
 
       log(`✅ Fichier téléchargé : ${filePath}`);
 
-      // 🐍 Lancer OCR Python
+      /* =========================
+         🐍 RUN OCR PYTHON
+      ========================= */
       const py = spawn("python3", [path.join(__dirname, "ocr.py"), filePath]);
 
-      let ocrOutput = "";
+      let ocrTextOnly = "";
       let ocrError = "";
 
       py.stdout.on("data", (data) => {
-        const text = data.toString();
-        ocrOutput += text;
-        log(`🐍 PYTHON STDOUT: ${text.trim()}`);
+        const chunk = data.toString();
+
+        // 🚫 IGNORER LES PROGRESS BARS EasyOCR
+        if (!chunk.includes("Progress:")) {
+          ocrTextOnly += chunk;
+        }
+
+        log(`🐍 PYTHON STDOUT: ${chunk.trim()}`);
       });
 
       py.stderr.on("data", (data) => {
@@ -93,21 +102,20 @@ app.post("/ocr/start", async (req, res) => {
       });
 
       py.on("close", () => {
-  const finalText = ocrOutput.trim();
+        const finalText = ocrTextOnly.trim();
 
-  if (finalText.length > 0) {
-    jobs[jobId].status = "done";
-    jobs[jobId].text = finalText;
-    log(`✅ OCR OK (${finalText.length} chars)`);
-  } else {
-    jobs[jobId].status = "error";
-    jobs[jobId].error = "OCR vide";
-    log("❌ OCR vide");
-  }
+        if (finalText.length > 10) {
+          jobs[jobId].status = "done";
+          jobs[jobId].text = finalText;
+          log(`✅ OCR OK (${finalText.length} chars)`);
+        } else {
+          jobs[jobId].status = "error";
+          jobs[jobId].error = "OCR vide ou invalide";
+          log("❌ OCR vide ou invalide");
+        }
 
-  fs.unlink(filePath, () => {});
-});
-
+        fs.unlink(filePath, () => {});
+      });
 
     } catch (err) {
       jobs[jobId].status = "error";
@@ -150,4 +158,6 @@ setInterval(() => {
    START SERVER
 ========================= */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => log(`🚀 OCR Polling Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  log(`🚀 OCR Polling Server running on port ${PORT}`)
+);
