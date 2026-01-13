@@ -92,22 +92,22 @@ app.post("/ocr/start", async (req, res) => {
         log(`🐍 PYTHON STDERR: ${text.trim()}`);
       });
 
-      py.on("close", (code) => {
-        log(`🔚 Python terminé (code ${code})`);
+      py.on("close", () => {
+  const finalText = ocrOutput.trim();
 
-        if (code === 0) {
-          jobs[jobId].status = "done";
-          jobs[jobId].text = ocrOutput.trim();
-          log(`✅ OCR OK (${jobs[jobId].text.length} chars)`);
-        } else {
-          jobs[jobId].status = "error";
-          jobs[jobId].error = ocrError || "Erreur OCR";
-          log(`❌ OCR ÉCHEC`);
-        }
+  if (finalText.length > 0) {
+    jobs[jobId].status = "done";
+    jobs[jobId].text = finalText;
+    log(`✅ OCR OK (${finalText.length} chars)`);
+  } else {
+    jobs[jobId].status = "error";
+    jobs[jobId].error = "OCR vide";
+    log("❌ OCR vide");
+  }
 
-        // 🧹 Nettoyage fichier
-        fs.unlink(filePath, () => {});
-      });
+  fs.unlink(filePath, () => {});
+});
+
 
     } catch (err) {
       jobs[jobId].status = "error";

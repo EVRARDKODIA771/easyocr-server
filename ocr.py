@@ -4,8 +4,11 @@ from pdf2image import convert_from_path
 import os
 import traceback
 
-def log(msg):
-    print(msg, file=sys.stderr, flush=True)
+# =========================
+# LOGGING (stderr UNIQUEMENT)
+# =========================
+def log(message):
+    print(message, file=sys.stderr, flush=True)
 
 def main():
     log("🔔 OCR PROCESS STARTED")
@@ -26,7 +29,7 @@ def main():
     try:
         reader = easyocr.Reader(["fr", "en"], gpu=False)
         log("🧠 EasyOCR Reader chargé")
-    except Exception as e:
+    except Exception:
         log("❌ Erreur init EasyOCR")
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
@@ -44,7 +47,7 @@ def main():
         else:
             log("🖼️ Fichier image détecté")
             images = [file_path]
-    except Exception as e:
+    except Exception:
         log("❌ Erreur conversion PDF/image")
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
@@ -56,8 +59,8 @@ def main():
 
     for i, img in enumerate(images):
         log(f"🔎 OCR page/image {i + 1}/{len(images)}")
-
         temp_img_path = None
+
         try:
             if isinstance(img, str):
                 img_path = img
@@ -68,7 +71,11 @@ def main():
                 img.save(temp_img_path, format="PNG")
                 img_path = temp_img_path
 
-            results = reader.readtext(img_path, detail=0, paragraph=True)
+            results = reader.readtext(
+                img_path,
+                detail=0,
+                paragraph=True
+            )
 
             if results:
                 all_text.append("\n".join(results))
@@ -91,12 +98,12 @@ def main():
     # SORTIE FINALE
     # =========================
     final_text = "\n\n".join(all_text).strip()
-
     log(f"🟢 OCR TERMINÉ ({len(final_text)} caractères)")
 
-    # ⚠️ TRÈS IMPORTANT
+    # 🚨 TRÈS IMPORTANT
     # stdout = TEXTE OCR UNIQUEMENT
     print(final_text, flush=True)
+
     sys.exit(0)
 
 if __name__ == "__main__":
