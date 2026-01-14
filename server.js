@@ -60,66 +60,96 @@ const upload = multer({ storage });
 function runPythonParallel(filePath, jobId) {
   log(`🚀 Lancement main_parallel.py -> ${filePath}`, jobId);
 
-  const py = spawn("python3", [path.join(__dirname, "main_parallel.py"), filePath]);
+  const py = spawn("python3", [
+    path.join(__dirname, "main_parallel.py"),
+    filePath
+  ]);
 
   jobs[jobId] = {
     status: "processing",
     logs: "",
     error: null,
     startedAt: Date.now(),
-    text: "",            // texte global ligne par ligne
-    mergedPdfText: "",   // fusion PDF natif en temps réel
-    mergedOcrText: "",   // fusion OCR en temps réel
+
+    pdfLines: [],
+    ocrLines: [],
+
+    mergedPdfText: "",
+    mergedOcrText: "",
+
+    pdfDone: false,
+    ocrDone: false
   };
 
-  const pdfLines = [];
-  const ocrLines = [];
+  const handleLine = (line, source) => {
+    log(`${source}: ${line}`, jobId);
+    jobs[jobId].logs += line + "\n";
 
-  const handleData = (data, source) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach(line => {
-      const cleanLine = line.trim();
-      if (!cleanLine) return;
+    // ---------- PDF TEXT ----------
+    if (line.startsWith("[PDF-TEXT]")) {
+      jobs[jobId].pdfLines.push(
+        line.replace("[PDF-TEXT]", "").trim()
+      );
+    }
 
-      // Log classique
-      log(`${source}: ${cleanLine}`, jobId);
-      jobs[jobId].logs += cleanLine + "\n";
+    if (line === "[PDF-TEXT-END]") {
+      jobs[jobId].mergedPdfText = jobs[jobId].pdfLines.join(" ");
+      jobs[jobId].pdfDone = true;
 
-      if (source === "STDOUT") {
-        jobs[jobId].text += cleanLine + "\n";
+      log(
+        `✅ mergedPdfText READY (${jobs[jobId].mergedPdfText.length} caractères):\n${jobs[jobId].mergedPdfText}`,
+        jobId
+      );
+    }
 
-        // 🔹 Séparer PDF-TEXT / OCR
-        if (cleanLine.startsWith("[PDF-TEXT]")) {
-          pdfLines.push(cleanLine.replace("[PDF-TEXT]", "").trim());
-        } else if (cleanLine.startsWith("[OCR]")) {
-          ocrLines.push(cleanLine.replace("[OCR]", "").trim());
-        }
+    // ---------- OCR ----------
+    if (line.startsWith("[OCR]")) {
+      jobs[jobId].ocrLines.push(
+        line.replace("[OCR]", "").trim()
+      );
+    }
 
-        // 🔹 Mise à jour en temps réel
-        jobs[jobId].mergedPdfText = pdfLines.join(" ");
-        jobs[jobId].mergedOcrText = ocrLines.join(" ");
-      }
-    });
+    if (line === "[OCR-END]") {
+      jobs[jobId].mergedOcrText = jobs[jobId].ocrLines.join(" ");
+      jobs[jobId].ocrDone = true;
+
+      log(
+        `✅ mergedOcrText READY (${jobs[jobId].mergedOcrText.length} caractères):\n${jobs[jobId].mergedOcrText}`,
+        jobId
+      );
+    }
   };
 
-  py.stdout.on("data", (data) => handleData(data, "STDOUT"));
-  py.stderr.on("data", (data) => handleData(data, "STDERR"));
-
-  py.on("close", (code) => {
-    log(`🏁 Python terminé (code=${code})`, jobId);
-    jobs[jobId].status = code === 0 ? "done" : "error";
-
-    // 🔹 Log final pour vérification
-    log(`✅ mergedPdfText final (${jobs[jobId].mergedPdfText.length} caractères) :\n${jobs[jobId].mergedPdfText}`, jobId);
-    log(`✅ mergedOcrText final (${jobs[jobId].mergedOcrText.length} caractères) :\n${jobs[jobId].mergedOcrText}`, jobId);
+  py.stdout.on("data", data => {
+    data
+      .toString()
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean)
+      .forEach(line => handleLine(line, "STDOUT"));
   });
 
-  py.on("error", (err) => {
+  py.stderr.on("data", data => {
+    data
+      .toString()
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean)
+      .forEach(line => handleLine(line, "STDERR"));
+  });
+
+  py.on("close", code => {
+    log(`🏁 Python terminé (code=${code})`, jobId);
+    jobs[jobId].status = code === 0 ? "done" : "error";
+  });
+
+  py.on("error", err => {
     log(`❌ ERREUR PYTHON: ${err.message}`, jobId);
     jobs[jobId].status = "error";
     jobs[jobId].error = err.message;
   });
 }
+
 
 /* =========================
    ROUTES

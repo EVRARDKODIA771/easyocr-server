@@ -3,46 +3,68 @@ import concurrent.futures
 import re
 from logs import log
 from pdf_text_worker import extract_pdf_text
-from ocr_tesseract_render import extract_ocr_text  # OCR déjà prêt
+from ocr_tesseract_render import extract_ocr_text
 
 # =========================
 # Filtrage caractères autorisés
 # =========================
-def filter_text(text):
-    # Garder lettres (y compris accents), chiffres et espaces
+def filter_text(text: str) -> str:
+    if not text:
+        return ""
     return re.sub(r"[^a-zA-Z0-9À-ÖØ-öø-ÿ\s]", "", text).strip()
 
 # =========================
-# Wrapper pour PDF-TEXT avec affichage immédiat
+# PDF TEXT (stream + END)
 # =========================
-def run_pdf_text(pdf_path):
+def run_pdf_text(pdf_path: str) -> str:
     full_text = ""
-    if not pdf_path:
-        return full_text
+
     try:
-        pages_text = extract_pdf_text(pdf_path, stream=True)  # stream=True → print page par page
+        pages_text = extract_pdf_text(pdf_path, stream=True)
+
         for page_num, page_content in enumerate(pages_text, start=1):
             filtered = filter_text(page_content)
-            full_text += filtered + "\n"
-            print(f"[PDF-TEXT] Page {page_num}: {filtered}", flush=True)  # affichage immédiat
+            if filtered:
+                full_text += filtered + "\n"
+                print(f"[PDF-TEXT] {filtered}", flush=True)
+
+        # 🔹 MARQUEUR FIN PDF
+        print("[PDF-TEXT-END]", flush=True)
+
     except Exception as e:
         log(f"❌ PDF-TEXT ERROR: {e}")
-    return full_text
+
+    return full_text.strip()
 
 # =========================
-# Wrapper pour OCR
+# OCR (long + END)
 # =========================
-def run_ocr(pdf_path):
+def run_ocr(pdf_path: str) -> str:
     full_text = ""
+
     try:
         ocr_text = extract_ocr_text(pdf_path)
         filtered = filter_text(ocr_text)
-        full_text += filtered
-        print(f"[OCR] Texte OCR trouvé: {filtered}", flush=True)
+
+        if filtered:
+            # On découpe pour garder le streaming côté Node
+            for line in filtered.splitlines():
+                clean = line.strip()
+                if clean:
+                    print(f"[OCR] {clean}", flush=True)
+                    full_text += clean + " "
+
+        # 🔹 MARQUEUR FIN OCR
+        print("[OCR-END]", flush=True)
+
     except Exception as e:
         log(f"❌ OCR ERROR: {e}")
-    return full_text
 
+    return full_text.strip()
+
+# =========================
+# MAIN
+# =========================
 def main():
     if len(sys.argv) < 2:
         log("⚠️ Aucun fichier PDF fourni")
@@ -51,31 +73,14 @@ def main():
     pdf_path = sys.argv[1]
     log(f"🚀 Lancement traitement parallèle pour : {pdf_path}")
 
-    results = {
-        "pdf_text": "",
-        "ocr_text": ""
-    }
-
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        future_pdf = executor.submit(run_pdf_text, pdf_path)
-        future_ocr = executor.submit(run_ocr, pdf_path)
+        executor.submit(run_pdf_text, pdf_path)
+        executor.submit(run_ocr, pdf_path)
 
-        # On récupère les résultats mais PDF-TEXT a déjà printé page par page
-        results["pdf_text"] = future_pdf.result()
-        results["ocr_text"] = future_ocr.result()
-
-    # Affichage final résumé
     log("🎯 Traitement terminé")
-    print("===================================", flush=True)
-    print("📄 [PDF-TEXT] TEXTE PDF NATIF:", flush=True)
-    print(results["pdf_text"], flush=True)
-    print("-----------------------------------", flush=True)
-    print("🧠 [OCR] TEXTE OCR:", flush=True)
-    print(results["ocr_text"], flush=True)
 
-    # Renvoi combiné filtré à Node via stdout
-    combined_text = f"PDF-TEXT:\n{results['pdf_text']}\n\nOCR:\n{results['ocr_text']}"
-    print(combined_text, flush=True)
-
+# =========================
+# ENTRY POINT
+# =========================
 if __name__ == "__main__":
     main()
