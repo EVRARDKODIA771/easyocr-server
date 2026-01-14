@@ -15,6 +15,35 @@ def filter_text(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9À-ÖØ-öø-ÿ\s]", "", text).strip()
 
 # =========================
+# Nettoyage du texte MERGED
+# =========================
+def clean_merged_text(raw_text: str) -> str:
+    text = raw_text
+
+    # 1️⃣ Supprimer les chiffres isolés ou très courts
+    text = re.sub(r'\b\d{1,2}\b', '', text)
+
+    # 2️⃣ Supprimer les lettres isolées répétées (ex: j j j, w w, J J)
+    text = re.sub(r'\b([a-zA-Z])\s+(\1\s*){1,}\b', '', text)
+
+    # 3️⃣ Supprimer les espaces multiples
+    text = re.sub(r'\s+', ' ', text)
+
+    # 4️⃣ Supprimer les caractères bizarres restants
+    text = re.sub(r'[^a-zA-Z0-9À-ÖØ-öø-ÿ.,;:!?\'"()\s-]', '', text)
+
+    # 5️⃣ Nettoyer les espaces avant la ponctuation
+    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+
+    # 6️⃣ Nettoyer les espaces autour des tirets
+    text = re.sub(r'\s*-\s*', ' - ', text)
+
+    # 7️⃣ Supprimer espaces début/fin
+    text = text.strip()
+
+    return text
+
+# =========================
 # PDF TEXT (stream + MERGED)
 # =========================
 def run_pdf_text(pdf_path: str):
@@ -36,9 +65,12 @@ def run_pdf_text(pdf_path: str):
         # 🔹 FIN PDF (IMMÉDIATE)
         print("[PDF-TEXT-END]", flush=True)
 
-        # 🔹 PDF TEXT MERGED (FULL CONTENT) EN UNE SEULE LIGNE
+        # 🔹 Nettoyage du texte MERGED avant affichage
         merged_single_line = merged_text.replace("\n", " ").strip()
-        print(f"📄📄📄 PDF TEXT MERGED (FULL CONTENT) 📄📄📄\n{merged_single_line}\n📄📄📄 END PDF TEXT MERGED 📄📄📄", flush=True)
+        cleaned_text = clean_merged_text(merged_single_line)
+
+        # 🔹 PDF TEXT MERGED (FULL CONTENT) CLEANED
+        print(f"📄📄📄 PDF TEXT MERGED CLEANED (FULL CONTENT) 📄📄📄\n{cleaned_text}\n📄📄📄 END PDF TEXT MERGED CLEANED 📄📄📄", flush=True)
 
     except Exception as e:
         log(f"❌ PDF-TEXT ERROR: {e}")
