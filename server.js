@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
-import { spawn } from "child_process";
+import { spawn, exec } from "child_process"; // ✅ import ESM
 
 const app = express();
 app.use(express.json());
@@ -31,14 +31,14 @@ function log(msg) {
 /* =========================
    CHECK PYTHON & TESSERACT
 ========================= */
-async function checkPythonTesseract() {
-  const { exec } = require("child_process");
+function checkPythonTesseract() {
   exec("python3 --version", (err, stdout) => {
-    if(err) log("❌ Python non trouvé !");
+    if (err) log("❌ Python non trouvé !");
     else log(`🐍 Python: ${stdout.trim()}`);
   });
+
   exec("tesseract --version", (err, stdout) => {
-    if(err) log("❌ Tesseract non trouvé !");
+    if (err) log("❌ Tesseract non trouvé !");
     else log(`🎯 Tesseract: ${stdout.split("\n")[0]}`);
   });
 }
@@ -87,7 +87,6 @@ app.post("/ocr/start", async (req, res) => {
       } else {
         log("⚠️ Fichier test/B.pdf non trouvé sur le serveur");
       }
-
     } catch (err) {
       jobs[jobId].status = "error";
       jobs[jobId].error = err.message;
