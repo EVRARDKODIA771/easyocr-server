@@ -93,14 +93,17 @@ function runPythonParallel(filePath, jobId) {
   py.stdout.on("data", (data) => handleData(data, "STDOUT"));
   py.stderr.on("data", (data) => handleData(data, "STDERR"));
 
-  py.on("close", (code) => {
-    log(`🏁 Python terminé (code=${code})`, jobId);
-    jobs[jobId].status = code === 0 ? "done" : "error";
+py.on("close", (code) => {
+  log(`🏁 Python terminé (code=${code})`, jobId);
+  jobs[jobId].status = code === 0 ? "done" : "error";
 
-    // 🔹 Regroupement final de toutes les lignes STDOUT en une seule chaîne
-    jobs[jobId].mergedText = stdoutLines.join(" ");
-    log(`✅ mergedText généré (${jobs[jobId].mergedText.length} caractères)`, jobId);
-  });
+  // 🔹 Regroupement final de toutes les lignes STDOUT en une seule chaîne
+  jobs[jobId].mergedText = stdoutLines.join(" ");
+
+  // Affichage complet dans le log
+  log(`✅ mergedText généré :\n${jobs[jobId].mergedText}`, jobId);
+});
+
 
   py.on("error", (err) => {
     log(`❌ ERREUR PYTHON: ${err.message}`, jobId);
