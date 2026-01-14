@@ -43,9 +43,7 @@ app.post("/ocr/start", async (req, res) => {
   log("➡️ POST /ocr/start reçu");
 
   const { fileUrl } = req.body;
-  if (!fileUrl) {
-    return res.status(400).json({ error: "fileUrl manquante" });
-  }
+  if (!fileUrl) return res.status(400).json({ error: "fileUrl manquante" });
 
   const jobId = crypto.randomUUID();
   jobs[jobId] = {
@@ -104,10 +102,16 @@ app.post("/ocr/start", async (req, res) => {
       py.on("close", () => {
         const finalText = ocrTextOnly.trim();
 
+        // 🔹 LOG TEXTE OCR DANS RENDER
+        log("========== OCR FINAL TEXT ==========");
+        if (finalText) log(finalText);
+        else log("[AUCUN TEXTE OCR]");
+        log("========== OCR FINAL TEXT END ==========");
+
         if (finalText.length > 10) {
           jobs[jobId].status = "done";
           jobs[jobId].text = finalText;
-          log(`✅ OCR OK (${finalText.length} chars)`);
+          log(`✅ OCR OK (${finalText.length} caractères)`);
         } else {
           jobs[jobId].status = "error";
           jobs[jobId].error = "OCR vide ou invalide";
@@ -134,9 +138,7 @@ app.post("/ocr/start", async (req, res) => {
 app.get("/ocr/status/:jobId", (req, res) => {
   const job = jobs[req.params.jobId];
 
-  if (!job) {
-    return res.status(404).json({ status: "unknown" });
-  }
+  if (!job) return res.status(404).json({ status: "unknown" });
 
   res.json(job);
 });

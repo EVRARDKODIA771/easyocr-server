@@ -108,6 +108,14 @@ def main():
     final_text = "\n\n".join(all_text).strip()
     log(f"🟢 OCR TERMINÉ ({len(final_text)} caractères)")
 
+    # 🔹 AFFICHER TEXTE OCR DANS LES LOGS RENDER
+    log("========== OCR RESULT START ==========")
+    if final_text:
+        log(final_text)
+    else:
+        log("[AUCUN TEXTE OCR]")
+    log("========== OCR RESULT END ==========")
+
     # 🚨 stdout = TEXTE OCR UNIQUEMENT
     print(final_text, flush=True)
 
