@@ -85,38 +85,50 @@ function runPythonParallel(filePath, jobId) {
     log(`${source}: ${line}`, jobId);
     jobs[jobId].logs += line + "\n";
 
-    // ---------- PDF TEXT ----------
+    /* =======================
+       PDF TEXT
+    ======================= */
+
     if (line.startsWith("[PDF-TEXT]")) {
       jobs[jobId].pdfLines.push(
         line.replace("[PDF-TEXT]", "").trim()
       );
+      return;
     }
 
     if (line === "[PDF-TEXT-END]") {
-      jobs[jobId].mergedPdfText = jobs[jobId].pdfLines.join(" ");
+      jobs[jobId].mergedPdfText = jobs[jobId].pdfLines.join("\n");
       jobs[jobId].pdfDone = true;
 
-      log(
-        `✅ mergedPdfText READY (${jobs[jobId].mergedPdfText.length} caractères):\n${jobs[jobId].mergedPdfText}`,
-        jobId
-      );
+      // 🔥 AFFICHAGE COMPLET IMMÉDIAT
+      log("[PDF-TEXT-END]", jobId);
+      log("📄📄📄 PDF TEXT MERGED (FULL CONTENT) 📄📄📄", jobId);
+      log(jobs[jobId].mergedPdfText, jobId);
+      log("📄📄📄 END PDF TEXT MERGED 📄📄📄", jobId);
+
+      return;
     }
 
-    // ---------- OCR ----------
+    /* =======================
+       OCR
+    ======================= */
+
     if (line.startsWith("[OCR]")) {
       jobs[jobId].ocrLines.push(
         line.replace("[OCR]", "").trim()
       );
+      return;
     }
 
     if (line === "[OCR-END]") {
-      jobs[jobId].mergedOcrText = jobs[jobId].ocrLines.join(" ");
+      jobs[jobId].mergedOcrText = jobs[jobId].ocrLines.join("\n");
       jobs[jobId].ocrDone = true;
 
       log(
-        `✅ mergedOcrText READY (${jobs[jobId].mergedOcrText.length} caractères):\n${jobs[jobId].mergedOcrText}`,
+        `🧠 OCR MERGED READY (${jobs[jobId].mergedOcrText.length} caractères):\n${jobs[jobId].mergedOcrText}`,
         jobId
       );
+      return;
     }
   };
 
