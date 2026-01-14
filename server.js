@@ -74,7 +74,10 @@ function runPythonParallel(filePath, jobId) {
     const lines = data.toString().split(/\r?\n/);
     lines.forEach(line => {
       if (line.trim()) {
-        log(`🐍 ${source}: ${line}`, jobId);
+        // ⚡️ Ici on affiche chaque ligne immédiatement dans Render
+        process.stdout.write(`[${jobId}] ${source}: ${line}\n`);
+        
+        // On met à jour le texte et les logs
         if (source === "STDOUT") jobs[jobId].text += line + "\n";
         jobs[jobId].logs += line + "\n";
       }
@@ -86,13 +89,13 @@ function runPythonParallel(filePath, jobId) {
 
   py.on("close", (code) => {
     jobs[jobId].status = code === 0 ? "done" : "error";
-    log(`🏁 Python terminé (code=${code})`, jobId);
+    process.stdout.write(`[${jobId}] Python terminé (code=${code})\n`);
   });
 
   py.on("error", (err) => {
     jobs[jobId].status = "error";
     jobs[jobId].error = err.message;
-    log(`❌ ERREUR PYTHON: ${err.message}`, jobId);
+    process.stdout.write(`[${jobId}] ❌ ERREUR PYTHON: ${err.message}\n`);
   });
 }
 
