@@ -1,7 +1,7 @@
 # ===============================
-# Base image Node.js (ESM OK)
+# Base image Node.js sur Debian stable (Bullseye)
 # ===============================
-FROM node:22
+FROM node:22-bullseye
 
 # ===============================
 # Dépendances système pour Python, OCR et PDF
