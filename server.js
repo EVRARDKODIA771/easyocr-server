@@ -68,18 +68,24 @@ function runPythonParallel(filePath, jobId) {
     error: null,
     startedAt: Date.now(),
     text: "",
+    mergedText: "", // <- champ pour fusion finale
   };
+
+  const stdoutLines = []; // <- on stocke toutes les lignes STDOUT pour le regroupement
 
   const handleData = (data, source) => {
     const lines = data.toString().split(/\r?\n/);
     lines.forEach(line => {
-      if (line.trim()) {
-        // ⚡️ Ici on affiche chaque ligne immédiatement dans Render
-        process.stdout.write(`[${jobId}] ${source}: ${line}\n`);
-        
-        // On met à jour le texte et les logs
-        if (source === "STDOUT") jobs[jobId].text += line + "\n";
-        jobs[jobId].logs += line + "\n";
+      const cleanLine = line.trim();
+      if (!cleanLine) return;
+
+      // Log comme avant
+      log(`${source}: ${cleanLine}`, jobId);
+      jobs[jobId].logs += cleanLine + "\n";
+
+      if (source === "STDOUT") {
+        jobs[jobId].text += cleanLine + "\n";
+        stdoutLines.push(cleanLine); // <- on stocke pour le regroupement final
       }
     });
   };
@@ -88,16 +94,21 @@ function runPythonParallel(filePath, jobId) {
   py.stderr.on("data", (data) => handleData(data, "STDERR"));
 
   py.on("close", (code) => {
+    log(`🏁 Python terminé (code=${code})`, jobId);
     jobs[jobId].status = code === 0 ? "done" : "error";
-    process.stdout.write(`[${jobId}] Python terminé (code=${code})\n`);
+
+    // 🔹 Regroupement final de toutes les lignes STDOUT en une seule chaîne
+    jobs[jobId].mergedText = stdoutLines.join(" ");
+    log(`✅ mergedText généré (${jobs[jobId].mergedText.length} caractères)`, jobId);
   });
 
   py.on("error", (err) => {
+    log(`❌ ERREUR PYTHON: ${err.message}`, jobId);
     jobs[jobId].status = "error";
     jobs[jobId].error = err.message;
-    process.stdout.write(`[${jobId}] ❌ ERREUR PYTHON: ${err.message}\n`);
   });
 }
+
 
 /* =========================
    ROUTES
