@@ -44,6 +44,37 @@ def clean_merged_text(raw_text: str) -> str:
     return text
 
 # =========================
+# Nettoyage avancé pour paroles intelligibles
+# =========================
+def make_text_smart(raw_text: str) -> str:
+    text = raw_text
+
+    # 1️⃣ Fusionner certains mots OCR coupés courants (FR)
+    text = re.sub(r'\bvi vez\b', 'vivez', text, flags=re.IGNORECASE)
+    text = re.sub(r'\blamour\b', "l'amour", text, flags=re.IGNORECASE)
+    text = re.sub(r'\bbienheu reux\b', "bien heureux", text, flags=re.IGNORECASE)
+    text = re.sub(r'\bse rez\b', 'serez', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bheu reux\b', 'heureux', text, flags=re.IGNORECASE)
+
+    # 2️⃣ Supprimer répétitions consécutives de mots identiques ou quasi-identiques
+    text = re.sub(r'\b(\w+)( \1)+\b', r'\1', text, flags=re.IGNORECASE)
+
+    # 3️⃣ Nettoyer les espaces multiples
+    text = re.sub(r'\s+', ' ', text)
+
+    # 4️⃣ Supprimer les caractères isolés qui restent
+    text = re.sub(r'\b[a-zA-Z]\b', '', text)
+
+    # 5️⃣ Ajuster les espaces autour des apostrophes et tirets
+    text = re.sub(r"\s*'\s*", "'", text)
+    text = re.sub(r'\s*-\s*', ' - ', text)
+
+    # 6️⃣ Supprimer espaces début/fin
+    text = text.strip()
+
+    return text
+
+# =========================
 # PDF TEXT (stream + MERGED)
 # =========================
 def run_pdf_text(pdf_path: str):
@@ -68,9 +99,10 @@ def run_pdf_text(pdf_path: str):
         # 🔹 Nettoyage du texte MERGED avant affichage
         merged_single_line = merged_text.replace("\n", " ").strip()
         cleaned_text = clean_merged_text(merged_single_line)
+        smart_text = make_text_smart(cleaned_text)
 
-        # 🔹 PDF TEXT MERGED (FULL CONTENT) CLEANED
-        print(f"📄📄📄 PDF TEXT MERGED CLEANED (FULL CONTENT) 📄📄📄\n{cleaned_text}\n📄📄📄 END PDF TEXT MERGED CLEANED 📄📄📄", flush=True)
+        # 🔹 PDF TEXT MERGED (FULL CONTENT) CLEANED & SMART
+        print(f"📄📄📄 PDF TEXT MERGED CLEANED & SMART (FULL CONTENT) 📄📄📄\n{smart_text}\n📄📄📄 END PDF TEXT MERGED CLEANED & SMART 📄📄📄", flush=True)
 
     except Exception as e:
         log(f"❌ PDF-TEXT ERROR: {e}")
