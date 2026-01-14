@@ -145,6 +145,50 @@ app.get("/ocr/status/:jobId", (req, res) => {
   res.json(job);
 });
 
+app.get("/ocr/testB", async (req, res) => {
+  const localFile = path.join(__dirname, "test", "B.pdf"); // ton fichier dans le repo
+  const jobId = crypto.randomUUID();
+
+  jobs[jobId] = {
+    status: "processing",
+    text: null,
+    error: null,
+    startedAt: Date.now()
+  };
+
+  log(`🆔 JOB TEST B CRÉÉ : ${jobId}`);
+  
+  const py = spawn("python3", [path.join(__dirname, "ocr.py"), localFile]);
+
+  let ocrTextOnly = "";
+
+  py.stdout.on("data", (data) => {
+    const chunk = data.toString();
+    if (!chunk.includes("Progress:")) ocrTextOnly += chunk;
+    log(`🐍 PYTHON STDOUT: ${chunk.trim()}`);
+  });
+
+  py.stderr.on("data", (data) => {
+    log(`🐍 PYTHON STDERR: ${data.toString().trim()}`);
+  });
+
+  py.on("close", () => {
+    const finalText = ocrTextOnly.trim();
+    log("========== OCR TEST B FINAL TEXT ==========");
+    log(finalText || "[AUCUN TEXTE OCR]");
+    log("========== OCR TEST B FINAL TEXT END ==========");
+
+    if (finalText.length > 10) {
+      jobs[jobId].status = "done";
+      jobs[jobId].text = finalText;
+    } else {
+      jobs[jobId].status = "error";
+      jobs[jobId].error = "OCR vide ou invalide";
+    }
+  });
+
+  res.json({ jobId, info: "OCR test B déclenché, consultez les logs Render" });
+});
 /* =========================
    CLEANUP JOBS (RAM)
 ========================= */
