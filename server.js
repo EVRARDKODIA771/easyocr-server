@@ -135,6 +135,7 @@ app.post("/ocr/upload", upload.single("file"), (req, res) => {
 });
 
 // POST /ocr/from-url -> Wix envoie une URL publique
+// POST /ocr/from-url -> Wix envoie une URL publique
 app.post("/ocr/from-url", async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: "URL manquante" });
@@ -144,8 +145,8 @@ app.post("/ocr/from-url", async (req, res) => {
     const filePath = path.join(UPLOAD_DIR, `url_${crypto.randomUUID()}${ext}`);
 
     const proto = url.startsWith("https") ? https : http;
-
     const file = fs.createWriteStream(filePath);
+
     proto.get(url, (response) => {
       response.pipe(file);
 
@@ -161,11 +162,14 @@ app.post("/ocr/from-url", async (req, res) => {
           text: "",
         };
 
-        runPythonParallel(filePath, jobId, (filteredText) => {
-          res.json({
-            status: "done",
-            text: filteredText,
-          });
+        // 🚀 Lancer le traitement Python
+        runPythonParallel(filePath, jobId);
+
+        // 🔹 Réponse initiale immédiate avec le jobId
+        res.json({
+          status: "processing",
+          jobId,
+          message: "Le traitement a commencé, récupérez le texte via /ocr/status/:jobId",
         });
       });
     }).on("error", (err) => {
@@ -177,6 +181,7 @@ app.post("/ocr/from-url", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // GET /ocr/status/:jobId -> check status
 app.get("/ocr/status/:jobId", (req, res) => {
