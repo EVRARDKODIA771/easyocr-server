@@ -189,6 +189,14 @@ app.get("/ocr/testB", async (req, res) => {
 
   res.json({ jobId, info: "OCR test B déclenché, consultez les logs Render" });
 });
+
+app.post("/ocrResult", (req, res) => {
+    const { file, results } = req.body;
+    console.log(`📥 Résultat OCR reçu pour ${file}:`);
+    console.log(results);
+    res.status(200).send({ message: "Résultats reçus ✅" });
+});
+
 /* =========================
    CLEANUP JOBS (RAM)
 ========================= */
