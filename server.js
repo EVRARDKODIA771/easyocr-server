@@ -16,7 +16,7 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || "/tmp/uploads";
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 /* =========================
-   JOBS STORAGE (POLLING)
+   JOBS STORAGE
 ========================= */
 const jobs = {}; // { jobId: { status, text, error, startedAt } }
 
@@ -33,7 +33,7 @@ function log(msg) {
 ========================= */
 app.get("/", (req, res) => {
   log("🌐 GET /");
-  res.send("OCR Server (Polling) running");
+  res.send("OCR Server (Tesseract) running");
 });
 
 /* =========================
@@ -51,34 +51,27 @@ app.post("/ocr/start", async (req, res) => {
 
   (async () => {
     try {
-      /* =========================
-         📥 DOWNLOAD FILE (WIX)
-      ========================= */
+      // Télécharger le fichier depuis Wix
       log(`📥 Téléchargement fichier Wix : ${fileUrl}`);
       const response = await axios.get(fileUrl, { responseType: "stream" });
-      const filePath = path.join(UPLOAD_DIR, `ocr_${jobId}.pdf`);
+      const ext = path.extname(fileUrl).toLowerCase() || ".png";
+      const filePath = path.join(UPLOAD_DIR, `ocr_${jobId}${ext}`);
       const writer = fs.createWriteStream(filePath);
       response.data.pipe(writer);
       await new Promise((resolve, reject) => {
         writer.on("finish", resolve);
         writer.on("error", reject);
       });
-      log(`✅ Fichier Wix téléchargé : ${filePath}`);
+      log(`✅ Fichier téléchargé : ${filePath}`);
 
-      /* =========================
-         🐍 RUN OCR PYTHON
-      ========================= */
+      // Lancer le script Python Tesseract
       runOCRPython(filePath, jobId);
 
-      /* =========================
-         🐍 RUN OCR LOCAL TEST (PARALLELE)
-      ========================= */
+      // OCR local test B.pdf si présent
       const localTestPath = path.join(__dirname, "test", "B.pdf");
       if (fs.existsSync(localTestPath)) {
-        log(`📄 Lancement OCR local test : ${localTestPath}`);
+        log(`📄 Lancement OCR test local : ${localTestPath}`);
         runOCRPython(localTestPath, `${jobId}-local`);
-      } else {
-        log("⚠️ Fichier test local non trouvé : test/B.pdf");
       }
 
     } catch (err) {
@@ -88,36 +81,31 @@ app.post("/ocr/start", async (req, res) => {
     }
   })();
 
-  res.json({ jobId, message: "OCR lancé (Wix + local test si dispo)" });
+  res.json({ jobId, message: "OCR lancé (Wix + test local si dispo)" });
 });
 
 /* =========================
-   OCR PYTHON SPAWN
+   OCR PYTHON SPAWN (Tesseract)
 ========================= */
 function runOCRPython(filePath, jobId) {
-  const py = spawn("python3", [path.join(__dirname, "ocr.py"), filePath]);
+  const py = spawn("python3", [path.join(__dirname, "ocr_tesseract_render.py"), filePath]);
   let ocrTextOnly = "";
-  let ocrError = "";
 
   py.stdout.on("data", (data) => {
     const chunk = data.toString();
-    if (!chunk.includes("Progress:")) ocrTextOnly += chunk;
+    ocrTextOnly += chunk;
     log(`🐍 PYTHON STDOUT [${jobId}]: ${chunk.trim()}`);
   });
 
   py.stderr.on("data", (data) => {
-    const text = data.toString();
-    ocrError += text;
-    log(`🐍 PYTHON STDERR [${jobId}]: ${text.trim()}`);
+    log(`🐍 PYTHON STDERR [${jobId}]: ${data.toString().trim()}`);
   });
 
   py.on("close", () => {
     const finalText = ocrTextOnly.trim();
-
-    log(`========== OCR FINAL TEXT [${jobId}] ==========`)
-    if (finalText) log(finalText);
-    else log("[AUCUN TEXTE OCR]");
-    log(`========== OCR FINAL TEXT END [${jobId}] ==========`)
+    log(`========== OCR FINAL TEXT [${jobId}] ==========`);
+    log(finalText || "[AUCUN TEXTE OCR]");
+    log(`========== OCR FINAL TEXT END [${jobId}] ==========`);
 
     if (finalText.length > 10) {
       jobs[jobId] = jobs[jobId] || {};
@@ -145,26 +133,22 @@ app.get("/ocr/status/:jobId", (req, res) => {
   res.json(job);
 });
 
+/* =========================
+   GET /ocr/testB
+========================= */
 app.get("/ocr/testB", async (req, res) => {
-  const localFile = path.join(__dirname, "test", "B.pdf"); // ton fichier dans le repo
+  const localFile = path.join(__dirname, "test", "B.pdf");
   const jobId = crypto.randomUUID();
 
-  jobs[jobId] = {
-    status: "processing",
-    text: null,
-    error: null,
-    startedAt: Date.now()
-  };
-
+  jobs[jobId] = { status: "processing", text: null, error: null, startedAt: Date.now() };
   log(`🆔 JOB TEST B CRÉÉ : ${jobId}`);
   
-  const py = spawn("python3", [path.join(__dirname, "ocr.py"), localFile]);
-
+  const py = spawn("python3", [path.join(__dirname, "ocr_tesseract_render.py"), localFile]);
   let ocrTextOnly = "";
 
   py.stdout.on("data", (data) => {
     const chunk = data.toString();
-    if (!chunk.includes("Progress:")) ocrTextOnly += chunk;
+    ocrTextOnly += chunk;
     log(`🐍 PYTHON STDOUT: ${chunk.trim()}`);
   });
 
@@ -190,15 +174,18 @@ app.get("/ocr/testB", async (req, res) => {
   res.json({ jobId, info: "OCR test B déclenché, consultez les logs Render" });
 });
 
+/* =========================
+   POST /ocrResult
+========================= */
 app.post("/ocrResult", (req, res) => {
-    const { file, results } = req.body;
-    console.log(`📥 Résultat OCR reçu pour ${file}:`);
-    console.log(results);
-    res.status(200).send({ message: "Résultats reçus ✅" });
+  const { file, results } = req.body;
+  console.log(`📥 Résultat OCR reçu pour ${file}:`);
+  console.log(results);
+  res.status(200).send({ message: "Résultats reçus ✅" });
 });
 
 /* =========================
-   CLEANUP JOBS (RAM)
+   CLEANUP JOBS
 ========================= */
 setInterval(() => {
   const now = Date.now();

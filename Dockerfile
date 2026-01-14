@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libsm6 libxext6 libxrender-dev libglib2.0-0 libjpeg-dev \
     poppler-utils \
+    tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng \
     ca-certificates curl wget && \
     rm -rf /var/lib/apt/lists/*
 
@@ -24,9 +25,8 @@ RUN npm install
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# === Installer PyTorch CPU et EasyOCR + autres dépendances ===
-RUN pip install --no-cache-dir -r requirements.txt \
-    --extra-index-url https://download.pytorch.org/whl/cpu
+# === Installer seulement les dépendances Python nécessaires (pytesseract, Pillow, requests) ===
+RUN pip install --no-cache-dir -r requirements.txt
 
 # === Copier le code du projet ===
 COPY . .
@@ -37,5 +37,5 @@ RUN mkdir -p /tmp/uploads
 # === Exposer le port Node ===
 EXPOSE 3000
 
-# === Démarrer le serveur ===
+# === Démarrer le serveur Node.js ===
 CMD ["node", "server.js"]
