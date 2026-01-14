@@ -1,6 +1,7 @@
 import sys
 import concurrent.futures
 import re
+import time
 from logs import log
 from pdf_text_worker import extract_pdf_text
 from ocr_tesseract_render import extract_ocr_text
@@ -16,54 +17,43 @@ def filter_text(text: str) -> str:
 # =========================
 # PDF TEXT (stream + END)
 # =========================
-def run_pdf_text(pdf_path: str) -> str:
-    full_text = ""
-
+def run_pdf_text(pdf_path: str):
     try:
         pages_text = extract_pdf_text(pdf_path, stream=True)
 
-        for page_num, page_content in enumerate(pages_text, start=1):
+        for page_content in pages_text:
             filtered = filter_text(page_content)
             if filtered:
-                full_text += filtered + "\n"
                 print(f"[PDF-TEXT] {filtered}", flush=True)
 
-        # 🔹 MARQUEUR FIN PDF
+        # 🔹 FIN PDF (IMMÉDIATE)
         print("[PDF-TEXT-END]", flush=True)
 
     except Exception as e:
         log(f"❌ PDF-TEXT ERROR: {e}")
 
-    return full_text.strip()
-
 # =========================
 # OCR (long + END)
 # =========================
-def run_ocr(pdf_path: str) -> str:
-    full_text = ""
-
+def run_ocr(pdf_path: str):
     try:
         ocr_text = extract_ocr_text(pdf_path)
         filtered = filter_text(ocr_text)
 
         if filtered:
-            # On découpe pour garder le streaming côté Node
             for line in filtered.splitlines():
                 clean = line.strip()
                 if clean:
                     print(f"[OCR] {clean}", flush=True)
-                    full_text += clean + " "
 
-        # 🔹 MARQUEUR FIN OCR
+        # 🔹 FIN OCR (PLUS TARD)
         print("[OCR-END]", flush=True)
 
     except Exception as e:
         log(f"❌ OCR ERROR: {e}")
 
-    return full_text.strip()
-
 # =========================
-# MAIN
+# MAIN (🔥 SANS BLOCAGE)
 # =========================
 def main():
     if len(sys.argv) < 2:
@@ -73,11 +63,19 @@ def main():
     pdf_path = sys.argv[1]
     log(f"🚀 Lancement traitement parallèle pour : {pdf_path}")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        executor.submit(run_pdf_text, pdf_path)
-        executor.submit(run_ocr, pdf_path)
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
-    log("🎯 Traitement terminé")
+    # 🔥 Lancement indépendant
+    executor.submit(run_pdf_text, pdf_path)
+    executor.submit(run_ocr, pdf_path)
+
+    # 🔥 MAINTIENT LE PROCESS VIVANT
+    try:
+        while True:
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        log("🛑 Interruption manuelle")
+        executor.shutdown(wait=False)
 
 # =========================
 # ENTRY POINT
