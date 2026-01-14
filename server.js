@@ -57,39 +57,40 @@ const upload = multer({ storage });
 /* =========================
    RUN PYTHON (main_parallel.py)
 ========================= */
+/* =========================
+   RUN PYTHON (main_parallel.py) - STREAMING
+========================= */
 function runPythonParallel(filePath, jobId, callback) {
   log(`🚀 Lancement main_parallel.py -> ${filePath}`, jobId);
 
   const py = spawn("python3", [path.join(__dirname, "main_parallel.py"), filePath]);
 
   jobs[jobId].logs = "";
-  let fullText = "";
+  jobs[jobId].text = "";
+  jobs[jobId].status = "processing";
 
-  py.stdout.on("data", (data) => {
-    const msg = data.toString();
-    jobs[jobId].logs += msg;
-    fullText += msg;
-    log(`🐍 STDOUT: ${msg.trim()}`, jobId);
-  });
+  // Fonction pour traiter chaque ligne et l'afficher immédiatement
+  const handleData = (data, source) => {
+    const lines = data.toString().split(/\r?\n/);
+    lines.forEach(line => {
+      if (line.trim()) {
+        log(`🐍 ${source}: ${line}`, jobId);
+        // On append le texte filtré dès qu'on le voit
+        if (source === "STDOUT") {
+          jobs[jobId].text += line + "\n";
+          // si callback fourni, on peut l'appeler à chaque ligne
+          if (callback) callback(jobs[jobId].text);
+        }
+      }
+    });
+  };
 
-  py.stderr.on("data", (data) => {
-    const msg = data.toString();
-    jobs[jobId].logs += msg;
-    log(`🐍 STDERR: ${msg.trim()}`, jobId);
-  });
+  py.stdout.on("data", (data) => handleData(data, "STDOUT"));
+  py.stderr.on("data", (data) => handleData(data, "STDERR"));
 
   py.on("close", (code) => {
     log(`🏁 Python terminé (code=${code})`, jobId);
     jobs[jobId].status = code === 0 ? "done" : "error";
-
-    const filtered = fullText
-      .normalize("NFD")
-      .replace(/[^a-zA-Z0-9À-ÖØ-öø-ÿ\s]/g, "")
-      .trim();
-
-    jobs[jobId].text = filtered;
-
-    if (callback) callback(filtered);
   });
 
   py.on("error", (err) => {
@@ -98,6 +99,7 @@ function runPythonParallel(filePath, jobId, callback) {
     jobs[jobId].error = err.message;
   });
 }
+
 
 /* =========================
    ROUTES
