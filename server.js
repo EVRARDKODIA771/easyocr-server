@@ -29,6 +29,21 @@ function log(msg) {
 }
 
 /* =========================
+   CHECK PYTHON & TESSERACT
+========================= */
+async function checkPythonTesseract() {
+  const { exec } = require("child_process");
+  exec("python3 --version", (err, stdout) => {
+    if(err) log("❌ Python non trouvé !");
+    else log(`🐍 Python: ${stdout.trim()}`);
+  });
+  exec("tesseract --version", (err, stdout) => {
+    if(err) log("❌ Tesseract non trouvé !");
+    else log(`🎯 Tesseract: ${stdout.split("\n")[0]}`);
+  });
+}
+
+/* =========================
    GET /
 ========================= */
 app.get("/", (req, res) => {
@@ -51,7 +66,6 @@ app.post("/ocr/start", async (req, res) => {
 
   (async () => {
     try {
-      // Télécharger le fichier depuis Wix
       log(`📥 Téléchargement fichier Wix : ${fileUrl}`);
       const response = await axios.get(fileUrl, { responseType: "stream" });
       const ext = path.extname(fileUrl).toLowerCase() || ".png";
@@ -64,14 +78,14 @@ app.post("/ocr/start", async (req, res) => {
       });
       log(`✅ Fichier téléchargé : ${filePath}`);
 
-      // Lancer le script Python Tesseract
       runOCRPython(filePath, jobId);
 
-      // OCR local test B.pdf si présent
       const localTestPath = path.join(__dirname, "test", "B.pdf");
       if (fs.existsSync(localTestPath)) {
         log(`📄 Lancement OCR test local : ${localTestPath}`);
         runOCRPython(localTestPath, `${jobId}-local`);
+      } else {
+        log("⚠️ Fichier test/B.pdf non trouvé sur le serveur");
       }
 
     } catch (err) {
@@ -88,7 +102,11 @@ app.post("/ocr/start", async (req, res) => {
    OCR PYTHON SPAWN (Tesseract)
 ========================= */
 function runOCRPython(filePath, jobId) {
+  log(`⚡ Lancement Python OCR pour : ${filePath}`);
   const py = spawn("python3", [path.join(__dirname, "ocr_tesseract_render.py"), filePath]);
+
+  py.on("error", (err) => log(`❌ ERREUR SPAWN PYTHON [${jobId}]: ${err}`));
+
   let ocrTextOnly = "";
 
   py.stdout.on("data", (data) => {
@@ -101,9 +119,10 @@ function runOCRPython(filePath, jobId) {
     log(`🐍 PYTHON STDERR [${jobId}]: ${data.toString().trim()}`);
   });
 
-  py.on("close", () => {
+  py.on("close", (code) => {
+    log(`🚀 Python terminé avec code ${code} pour job ${jobId}`);
     const finalText = ocrTextOnly.trim();
-    log(`========== OCR FINAL TEXT [${jobId}] ==========`);
+    log(`========== OCR FINAL TEXT [${jobId}] ==========`)
     log(finalText || "[AUCUN TEXTE OCR]");
     log(`========== OCR FINAL TEXT END [${jobId}] ==========`);
 
@@ -119,7 +138,6 @@ function runOCRPython(filePath, jobId) {
       log(`❌ OCR vide ou invalide [${jobId}]`);
     }
 
-    // Supprimer le fichier après OCR
     fs.unlink(filePath, () => {});
   });
 }
@@ -142,34 +160,13 @@ app.get("/ocr/testB", async (req, res) => {
 
   jobs[jobId] = { status: "processing", text: null, error: null, startedAt: Date.now() };
   log(`🆔 JOB TEST B CRÉÉ : ${jobId}`);
-  
-  const py = spawn("python3", [path.join(__dirname, "ocr_tesseract_render.py"), localFile]);
-  let ocrTextOnly = "";
 
-  py.stdout.on("data", (data) => {
-    const chunk = data.toString();
-    ocrTextOnly += chunk;
-    log(`🐍 PYTHON STDOUT: ${chunk.trim()}`);
-  });
+  if (!fs.existsSync(localFile)) {
+    log("⚠️ Fichier test/B.pdf non trouvé");
+    return res.status(404).json({ error: "Fichier test/B.pdf non trouvé" });
+  }
 
-  py.stderr.on("data", (data) => {
-    log(`🐍 PYTHON STDERR: ${data.toString().trim()}`);
-  });
-
-  py.on("close", () => {
-    const finalText = ocrTextOnly.trim();
-    log("========== OCR TEST B FINAL TEXT ==========");
-    log(finalText || "[AUCUN TEXTE OCR]");
-    log("========== OCR TEST B FINAL TEXT END ==========");
-
-    if (finalText.length > 10) {
-      jobs[jobId].status = "done";
-      jobs[jobId].text = finalText;
-    } else {
-      jobs[jobId].status = "error";
-      jobs[jobId].error = "OCR vide ou invalide";
-    }
-  });
+  runOCRPython(localFile, jobId);
 
   res.json({ jobId, info: "OCR test B déclenché, consultez les logs Render" });
 });
@@ -179,8 +176,8 @@ app.get("/ocr/testB", async (req, res) => {
 ========================= */
 app.post("/ocrResult", (req, res) => {
   const { file, results } = req.body;
-  console.log(`📥 Résultat OCR reçu pour ${file}:`);
-  console.log(results);
+  log(`📥 Résultat OCR reçu pour ${file}`);
+  log(results);
   res.status(200).send({ message: "Résultats reçus ✅" });
 });
 
@@ -200,5 +197,6 @@ setInterval(() => {
 /* =========================
    START SERVER
 ========================= */
+checkPythonTesseract(); // Vérifier Python + Tesseract au démarrage
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => log(`🚀 OCR Polling Server running on port ${PORT}`));
