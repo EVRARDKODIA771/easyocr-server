@@ -1,14 +1,13 @@
+# ocr_tesseract_render.py
 import sys
 import os
 import pytesseract
 from PIL import Image
 from pdf2image import convert_from_path
 import requests
+from logs import log  # tu as logs.py, je l'utilise pour cohérence
 
 SERVER_URL = "https://ia-ocr.onrender.com/ocrResult"
-
-def log(msg):
-    print(msg, flush=True)
 
 def send_result_to_server(file_name, text_result):
     payload = {
@@ -16,6 +15,7 @@ def send_result_to_server(file_name, text_result):
         "results": [{"text": text_result, "confidence": 1.0}]
     }
     try:
+        import requests
         response = requests.post(SERVER_URL, json=payload)
         if response.ok:
             log(f"📤 Résultat envoyé au serveur, status: {response.status_code}")
@@ -24,21 +24,19 @@ def send_result_to_server(file_name, text_result):
     except Exception as e:
         log(f"❌ Erreur en envoyant les résultats: {e}")
 
-def main():
-    if len(sys.argv) < 2:
-        log("⚠️ Aucun fichier fourni")
-        sys.exit(1)
-
-    file_path = sys.argv[1]
+def extract_ocr_text(file_path: str) -> str:
+    """
+    Fonction réutilisable pour main_parallel.py
+    Retourne le texte OCR du fichier
+    """
     if not os.path.exists(file_path):
         log(f"⚠️ Fichier introuvable: {file_path}")
-        sys.exit(1)
+        return ""
 
+    text_result = ""
     try:
-        log(f"📥 Traitement du fichier: {file_path}")
-        text_result = ""
+        log(f"📥 [OCR] Traitement du fichier: {file_path}")
 
-        # Si PDF → convertir en images
         if file_path.lower().endswith(".pdf"):
             pages = convert_from_path(file_path, dpi=200)
             log(f"📄 PDF détecté, {len(pages)} page(s) à traiter")
@@ -47,7 +45,6 @@ def main():
                 text_result += page_text + "\n"
                 log(f"✅ Page {i} traitée, {len(page_text.strip())} caractères détectés")
         else:
-            # Sinon image classique
             img = Image.open(file_path)
             text_result = pytesseract.image_to_string(img, lang="fra+eng")
             log(f"✅ Image traitée, {len(text_result.strip())} caractères détectés")
@@ -55,18 +52,24 @@ def main():
         if not text_result.strip():
             log("⚠️ Aucun texte détecté")
         else:
-            log("✅ Texte détecté:")
-            for line in text_result.splitlines():
-                if line.strip():
-                    log(f"- {line.strip()}")
+            log(f"✅ Texte OCR détecté ({len(text_result.strip())} caractères)")
 
-        # Envoi au serveur Render
+        # Optionnel: envoi au serveur
         send_result_to_server(os.path.basename(file_path), text_result)
-
-        log("🎉 OCR FINISHED")
 
     except Exception as e:
         log(f"❌ Erreur OCR: {e}")
+
+    return text_result
+
+# === main() pour exécution directe ===
+def main():
+    if len(sys.argv) < 2:
+        log("⚠️ Aucun fichier fourni")
+        sys.exit(1)
+    file_path = sys.argv[1]
+    extract_ocr_text(file_path)
+    log("🎉 OCR FINISHED")
 
 if __name__ == "__main__":
     main()

@@ -2,7 +2,7 @@ import sys
 import concurrent.futures
 from logs import log
 from pdf_text_worker import extract_pdf_text
-from ocr_worker import extract_ocr_text
+from ocr_tesseract_render import extract_ocr_text  # ✅ avant c'était ocr_worker
 
 def main():
     if len(sys.argv) < 2:
@@ -27,7 +27,7 @@ def main():
             key = futures[future]
             try:
                 results[key] = future.result()
-                log(f"📥 Résultat reçu : {key} ({len(results[key])} caractères)")
+                log(f"📥 Résultat reçu : {key} ({len(results[key]) if results[key] else 0} caractères)")
             except Exception as e:
                 log(f"❌ Erreur dans {key} : {e}")
 
