@@ -46,7 +46,6 @@ def main():
     # CHARGEMENT DES IMAGES
     # =========================
     images = []
-
     try:
         if file_path.lower().endswith(".pdf"):
             log("📄 Conversion PDF -> images")
@@ -64,11 +63,9 @@ def main():
     # OCR
     # =========================
     all_text = []
-
     for i, img in enumerate(images):
         log(f"🔎 OCR page/image {i + 1}/{len(images)}")
         temp_img_path = None
-
         try:
             if isinstance(img, str):
                 img_path = img
@@ -94,7 +91,6 @@ def main():
         except Exception:
             log("❌ Erreur OCR page")
             traceback.print_exc(file=sys.stderr)
-
         finally:
             if temp_img_path and os.path.exists(temp_img_path):
                 try:
@@ -116,9 +112,8 @@ def main():
         log("[AUCUN TEXTE OCR]")
     log("========== OCR RESULT END ==========")
 
-    # 🚨 stdout = TEXTE OCR UNIQUEMENT
+    # 🚨 stdout = TEXTE OCR UNIQUEMENT pour serveur.js
     print(final_text, flush=True)
-
     sys.exit(0)
 
 if __name__ == "__main__":

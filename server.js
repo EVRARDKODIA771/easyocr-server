@@ -46,80 +46,40 @@ app.post("/ocr/start", async (req, res) => {
   if (!fileUrl) return res.status(400).json({ error: "fileUrl manquante" });
 
   const jobId = crypto.randomUUID();
-  jobs[jobId] = {
-    status: "processing",
-    text: null,
-    error: null,
-    startedAt: Date.now()
-  };
-
+  jobs[jobId] = { status: "processing", text: null, error: null, startedAt: Date.now() };
   log(`🆔 JOB CRÉÉ : ${jobId}`);
 
   (async () => {
     try {
       /* =========================
-         📥 DOWNLOAD FILE
+         📥 DOWNLOAD FILE (WIX)
       ========================= */
-      log(`📥 Téléchargement fichier : ${fileUrl}`);
+      log(`📥 Téléchargement fichier Wix : ${fileUrl}`);
       const response = await axios.get(fileUrl, { responseType: "stream" });
-
       const filePath = path.join(UPLOAD_DIR, `ocr_${jobId}.pdf`);
       const writer = fs.createWriteStream(filePath);
       response.data.pipe(writer);
-
       await new Promise((resolve, reject) => {
         writer.on("finish", resolve);
         writer.on("error", reject);
       });
-
-      log(`✅ Fichier téléchargé : ${filePath}`);
+      log(`✅ Fichier Wix téléchargé : ${filePath}`);
 
       /* =========================
          🐍 RUN OCR PYTHON
       ========================= */
-      const py = spawn("python3", [path.join(__dirname, "ocr.py"), filePath]);
+      runOCRPython(filePath, jobId);
 
-      let ocrTextOnly = "";
-      let ocrError = "";
-
-      py.stdout.on("data", (data) => {
-        const chunk = data.toString();
-
-        // 🚫 IGNORER LES PROGRESS BARS EasyOCR
-        if (!chunk.includes("Progress:")) {
-          ocrTextOnly += chunk;
-        }
-
-        log(`🐍 PYTHON STDOUT: ${chunk.trim()}`);
-      });
-
-      py.stderr.on("data", (data) => {
-        const text = data.toString();
-        ocrError += text;
-        log(`🐍 PYTHON STDERR: ${text.trim()}`);
-      });
-
-      py.on("close", () => {
-        const finalText = ocrTextOnly.trim();
-
-        // 🔹 LOG TEXTE OCR DANS RENDER
-        log("========== OCR FINAL TEXT ==========");
-        if (finalText) log(finalText);
-        else log("[AUCUN TEXTE OCR]");
-        log("========== OCR FINAL TEXT END ==========");
-
-        if (finalText.length > 10) {
-          jobs[jobId].status = "done";
-          jobs[jobId].text = finalText;
-          log(`✅ OCR OK (${finalText.length} caractères)`);
-        } else {
-          jobs[jobId].status = "error";
-          jobs[jobId].error = "OCR vide ou invalide";
-          log("❌ OCR vide ou invalide");
-        }
-
-        fs.unlink(filePath, () => {});
-      });
+      /* =========================
+         🐍 RUN OCR LOCAL TEST (PARALLELE)
+      ========================= */
+      const localTestPath = path.join(__dirname, "test", "B.pdf");
+      if (fs.existsSync(localTestPath)) {
+        log(`📄 Lancement OCR local test : ${localTestPath}`);
+        runOCRPython(localTestPath, `${jobId}-local`);
+      } else {
+        log("⚠️ Fichier test local non trouvé : test/B.pdf");
+      }
 
     } catch (err) {
       jobs[jobId].status = "error";
@@ -128,18 +88,60 @@ app.post("/ocr/start", async (req, res) => {
     }
   })();
 
-  // ⚡ Réponse immédiate (polling)
-  res.json({ jobId });
+  res.json({ jobId, message: "OCR lancé (Wix + local test si dispo)" });
 });
+
+/* =========================
+   OCR PYTHON SPAWN
+========================= */
+function runOCRPython(filePath, jobId) {
+  const py = spawn("python3", [path.join(__dirname, "ocr.py"), filePath]);
+  let ocrTextOnly = "";
+  let ocrError = "";
+
+  py.stdout.on("data", (data) => {
+    const chunk = data.toString();
+    if (!chunk.includes("Progress:")) ocrTextOnly += chunk;
+    log(`🐍 PYTHON STDOUT [${jobId}]: ${chunk.trim()}`);
+  });
+
+  py.stderr.on("data", (data) => {
+    const text = data.toString();
+    ocrError += text;
+    log(`🐍 PYTHON STDERR [${jobId}]: ${text.trim()}`);
+  });
+
+  py.on("close", () => {
+    const finalText = ocrTextOnly.trim();
+
+    log(`========== OCR FINAL TEXT [${jobId}] ==========`)
+    if (finalText) log(finalText);
+    else log("[AUCUN TEXTE OCR]");
+    log(`========== OCR FINAL TEXT END [${jobId}] ==========`)
+
+    if (finalText.length > 10) {
+      jobs[jobId] = jobs[jobId] || {};
+      jobs[jobId].status = "done";
+      jobs[jobId].text = finalText;
+      log(`✅ OCR OK [${jobId}] (${finalText.length} caractères)`);
+    } else {
+      jobs[jobId] = jobs[jobId] || {};
+      jobs[jobId].status = "error";
+      jobs[jobId].error = "OCR vide ou invalide";
+      log(`❌ OCR vide ou invalide [${jobId}]`);
+    }
+
+    // Supprimer le fichier après OCR
+    fs.unlink(filePath, () => {});
+  });
+}
 
 /* =========================
    GET /ocr/status/:jobId
 ========================= */
 app.get("/ocr/status/:jobId", (req, res) => {
   const job = jobs[req.params.jobId];
-
   if (!job) return res.status(404).json({ status: "unknown" });
-
   res.json(job);
 });
 
@@ -160,6 +162,4 @@ setInterval(() => {
    START SERVER
 ========================= */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  log(`🚀 OCR Polling Server running on port ${PORT}`)
-);
+app.listen(PORT, () => log(`🚀 OCR Polling Server running on port ${PORT}`));
