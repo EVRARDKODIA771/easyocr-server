@@ -40,7 +40,7 @@ def main():
 
         # Si PDF → convertir en images
         if file_path.lower().endswith(".pdf"):
-            pages = convert_from_path(file_path)
+            pages = convert_from_path(file_path, dpi=200)
             log(f"📄 PDF détecté, {len(pages)} page(s) à traiter")
             for i, page in enumerate(pages, start=1):
                 page_text = pytesseract.image_to_string(page, lang="fra+eng")
