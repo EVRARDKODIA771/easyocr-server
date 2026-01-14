@@ -67,11 +67,13 @@ function runPythonParallel(filePath, jobId) {
     logs: "",
     error: null,
     startedAt: Date.now(),
-    text: "",
-    mergedText: "", // <- champ pour fusion finale
+    text: "",            // texte global ligne par ligne
+    mergedPdfText: "",   // fusion PDF natif en temps réel
+    mergedOcrText: "",   // fusion OCR en temps réel
   };
 
-  const stdoutLines = []; // <- on stocke toutes les lignes STDOUT pour le regroupement
+  const pdfLines = [];
+  const ocrLines = [];
 
   const handleData = (data, source) => {
     const lines = data.toString().split(/\r?\n/);
@@ -79,13 +81,23 @@ function runPythonParallel(filePath, jobId) {
       const cleanLine = line.trim();
       if (!cleanLine) return;
 
-      // Log comme avant
+      // Log classique
       log(`${source}: ${cleanLine}`, jobId);
       jobs[jobId].logs += cleanLine + "\n";
 
       if (source === "STDOUT") {
         jobs[jobId].text += cleanLine + "\n";
-        stdoutLines.push(cleanLine); // <- on stocke pour le regroupement final
+
+        // 🔹 Séparer PDF-TEXT / OCR
+        if (cleanLine.startsWith("[PDF-TEXT]")) {
+          pdfLines.push(cleanLine.replace("[PDF-TEXT]", "").trim());
+        } else if (cleanLine.startsWith("[OCR]")) {
+          ocrLines.push(cleanLine.replace("[OCR]", "").trim());
+        }
+
+        // 🔹 Mise à jour en temps réel
+        jobs[jobId].mergedPdfText = pdfLines.join(" ");
+        jobs[jobId].mergedOcrText = ocrLines.join(" ");
       }
     });
   };
@@ -93,17 +105,14 @@ function runPythonParallel(filePath, jobId) {
   py.stdout.on("data", (data) => handleData(data, "STDOUT"));
   py.stderr.on("data", (data) => handleData(data, "STDERR"));
 
-py.on("close", (code) => {
-  log(`🏁 Python terminé (code=${code})`, jobId);
-  jobs[jobId].status = code === 0 ? "done" : "error";
+  py.on("close", (code) => {
+    log(`🏁 Python terminé (code=${code})`, jobId);
+    jobs[jobId].status = code === 0 ? "done" : "error";
 
-  // 🔹 Regroupement final de toutes les lignes STDOUT en une seule chaîne
-  jobs[jobId].mergedText = stdoutLines.join(" ");
-
-  // Affichage complet dans le log
-  log(`✅ mergedText généré :\n${jobs[jobId].mergedText}`, jobId);
-});
-
+    // 🔹 Log final pour vérification
+    log(`✅ mergedPdfText final (${jobs[jobId].mergedPdfText.length} caractères) :\n${jobs[jobId].mergedPdfText}`, jobId);
+    log(`✅ mergedOcrText final (${jobs[jobId].mergedOcrText.length} caractères) :\n${jobs[jobId].mergedOcrText}`, jobId);
+  });
 
   py.on("error", (err) => {
     log(`❌ ERREUR PYTHON: ${err.message}`, jobId);
@@ -111,7 +120,6 @@ py.on("close", (code) => {
     jobs[jobId].error = err.message;
   });
 }
-
 
 /* =========================
    ROUTES
