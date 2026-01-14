@@ -13,21 +13,20 @@ def log(message):
 def main():
     log("🔔 OCR PROCESS STARTED")
 
-    if len(sys.argv) < 2:
-        log("⚠️ Aucun fichier fourni en argument")
-        sys.exit(1)
-
-    file_path = sys.argv[1]
+    # =========================
+    # Fichier à traiter
+    # =========================
+    # Si aucun argument n'est passé, on utilise le PDF local pour test
+    file_path = sys.argv[1] if len(sys.argv) > 1 else "test/B.pdf"
     log(f"📥 Fichier OCR à traiter : {file_path}")
 
     UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/uploads")
     MODEL_DIR = "/tmp/easyocr"
-
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(MODEL_DIR, exist_ok=True)
 
     # =========================
-    # INIT EASYOCR (CACHE ACTIVÉ)
+    # INIT EASYOCR
     # =========================
     try:
         reader = easyocr.Reader(
@@ -48,8 +47,8 @@ def main():
     images = []
     try:
         if file_path.lower().endswith(".pdf"):
-            log("📄 Conversion PDF -> images")
-            images = convert_from_path(file_path, dpi=300)
+            log("📄 Conversion PDF -> images (dpi=100 pour test rapide)")
+            images = convert_from_path(file_path, dpi=100)
             log(f"✅ PDF converti : {len(images)} page(s)")
         else:
             log("🖼️ Fichier image détecté")
@@ -63,36 +62,28 @@ def main():
     # OCR
     # =========================
     all_text = []
+
     for i, img in enumerate(images):
         log(f"🔎 OCR page/image {i + 1}/{len(images)}")
-        temp_img_path = None
+        temp_img_path = os.path.join(UPLOAD_DIR, f"temp_ocr_page_{i}.png")
+        img.save(temp_img_path, format="PNG")
+
         try:
-            if isinstance(img, str):
-                img_path = img
+            results = reader.readtext(temp_img_path, detail=0, paragraph=True)
+            text = "\n".join(results).strip()
+            if text:
+                log(f"✅ Texte détecté page {i+1} ({len(results)} segments)")
+                log(f"--- CONTENU PAGE {i+1} ---\n{text}\n--- FIN PAGE {i+1} ---")
+                all_text.append(text)
+                # Affichage immédiat pour le serveur
+                print(text, flush=True)
             else:
-                temp_img_path = os.path.join(
-                    UPLOAD_DIR, f"temp_ocr_page_{i}.png"
-                )
-                img.save(temp_img_path, format="PNG")
-                img_path = temp_img_path
-
-            results = reader.readtext(
-                img_path,
-                detail=0,
-                paragraph=True
-            )
-
-            if results:
-                all_text.append("\n".join(results))
-                log(f"✅ Texte détecté ({len(results)} segments)")
-            else:
-                log("⚠️ Aucun texte détecté")
-
+                log(f"⚠️ Aucun texte détecté page {i+1}")
         except Exception:
-            log("❌ Erreur OCR page")
+            log(f"❌ Erreur OCR page {i+1}")
             traceback.print_exc(file=sys.stderr)
         finally:
-            if temp_img_path and os.path.exists(temp_img_path):
+            if os.path.exists(temp_img_path):
                 try:
                     os.remove(temp_img_path)
                 except OSError:
@@ -104,7 +95,6 @@ def main():
     final_text = "\n\n".join(all_text).strip()
     log(f"🟢 OCR TERMINÉ ({len(final_text)} caractères)")
 
-    # 🔹 AFFICHER TEXTE OCR DANS LES LOGS RENDER
     log("========== OCR RESULT START ==========")
     if final_text:
         log(final_text)
@@ -112,8 +102,6 @@ def main():
         log("[AUCUN TEXTE OCR]")
     log("========== OCR RESULT END ==========")
 
-    # 🚨 stdout = TEXTE OCR UNIQUEMENT pour serveur.js
-    print(final_text, flush=True)
     sys.exit(0)
 
 if __name__ == "__main__":
