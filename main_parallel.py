@@ -31,13 +31,14 @@ def run_pdf_text(pdf_path: str):
                     clean = line.strip()
                     if clean:
                         print(f"[PDF-TEXT] {clean}", flush=True)
-                        merged_text += clean + " "  # <-- concaténation pour MERGED
+                        merged_text += clean + " "  # <-- concaténation pour MERGED (avec espace)
 
         # 🔹 FIN PDF (IMMÉDIATE)
         print("[PDF-TEXT-END]", flush=True)
 
-        # 🔹 PDF TEXT MERGED (FULL CONTENT)
-        print(f"📄📄📄 PDF TEXT MERGED (FULL CONTENT) 📄📄📄\n{merged_text.strip()}\n📄📄📄 END PDF TEXT MERGED 📄📄📄", flush=True)
+        # 🔹 PDF TEXT MERGED (FULL CONTENT) EN UNE SEULE LIGNE
+        merged_single_line = merged_text.replace("\n", " ").strip()
+        print(f"📄📄📄 PDF TEXT MERGED (FULL CONTENT) 📄📄📄\n{merged_single_line}\n📄📄📄 END PDF TEXT MERGED 📄📄📄", flush=True)
 
     except Exception as e:
         log(f"❌ PDF-TEXT ERROR: {e}")
