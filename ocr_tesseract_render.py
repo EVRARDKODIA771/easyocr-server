@@ -4,33 +4,22 @@ import os
 import pytesseract
 from PIL import Image
 from pdf2image import convert_from_path
-import requests
-from logs import log  # tu as logs.py, je l'utilise pour cohérence
+import re
+from logs import log  # pour cohérence avec main_parallel.py
 
-SERVER_URL = "https://ia-ocr.onrender.com/ocrResult"
-
-def send_result_to_server(file_name, text_result):
-    payload = {
-        "file": file_name,
-        "results": [{"text": text_result, "confidence": 1.0}]
-    }
-    try:
-        import requests
-        response = requests.post(SERVER_URL, json=payload)
-        if response.ok:
-            log(f"📤 Résultat envoyé au serveur, status: {response.status_code}")
-        else:
-            log(f"⚠️ Échec de l'envoi, status: {response.status_code}, message: {response.text}")
-    except Exception as e:
-        log(f"❌ Erreur en envoyant les résultats: {e}")
+# =========================
+# Filtrage caractères autorisés
+# =========================
+def filter_text(text: str) -> str:
+    """Garde uniquement lettres (y compris accents), chiffres et espaces"""
+    return re.sub(r"[^a-zA-Z0-9À-ÖØ-öø-ÿ\s]", "", text).strip()
 
 def extract_ocr_text(file_path: str) -> str:
     """
-    Fonction réutilisable pour main_parallel.py
-    Retourne le texte OCR du fichier
+    Retourne le texte OCR filtré du fichier PDF ou image
     """
     if not os.path.exists(file_path):
-        log(f"⚠️ Fichier introuvable: {file_path}")
+        log(f"⚠️ [OCR] Fichier introuvable: {file_path}")
         return ""
 
     text_result = ""
@@ -39,26 +28,25 @@ def extract_ocr_text(file_path: str) -> str:
 
         if file_path.lower().endswith(".pdf"):
             pages = convert_from_path(file_path, dpi=200)
-            log(f"📄 PDF détecté, {len(pages)} page(s) à traiter")
+            log(f"📄 [OCR] PDF détecté, {len(pages)} page(s) à traiter")
             for i, page in enumerate(pages, start=1):
                 page_text = pytesseract.image_to_string(page, lang="fra+eng")
+                page_text = filter_text(page_text)
                 text_result += page_text + "\n"
-                log(f"✅ Page {i} traitée, {len(page_text.strip())} caractères détectés")
+                log(f"✅ [OCR] Page {i} traitée, {len(page_text)} caractères filtrés")
         else:
             img = Image.open(file_path)
-            text_result = pytesseract.image_to_string(img, lang="fra+eng")
-            log(f"✅ Image traitée, {len(text_result.strip())} caractères détectés")
+            page_text = pytesseract.image_to_string(img, lang="fra+eng")
+            text_result = filter_text(page_text)
+            log(f"✅ [OCR] Image traitée, {len(text_result)} caractères filtrés")
 
         if not text_result.strip():
-            log("⚠️ Aucun texte détecté")
+            log("⚠️ [OCR] Aucun texte détecté après filtrage")
         else:
-            log(f"✅ Texte OCR détecté ({len(text_result.strip())} caractères)")
-
-        # Optionnel: envoi au serveur
-        send_result_to_server(os.path.basename(file_path), text_result)
+            log(f"✅ [OCR] Texte détecté ({len(text_result.strip())} caractères après filtrage)")
 
     except Exception as e:
-        log(f"❌ Erreur OCR: {e}")
+        log(f"❌ [OCR] Erreur OCR: {e}")
 
     return text_result
 
@@ -68,8 +56,10 @@ def main():
         log("⚠️ Aucun fichier fourni")
         sys.exit(1)
     file_path = sys.argv[1]
-    extract_ocr_text(file_path)
-    log("🎉 OCR FINISHED")
+    text = extract_ocr_text(file_path)
+    # affichage final pour Node
+    print(text)
+    log("🎉 [OCR] FINISHED")
 
 if __name__ == "__main__":
     main()

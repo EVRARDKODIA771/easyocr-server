@@ -4,7 +4,8 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
-import { spawn, exec } from "child_process";
+import { spawn } from "child_process";
+import multer from "multer";
 
 const app = express();
 app.use(express.json());
@@ -15,16 +16,14 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || "/tmp/uploads";
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
+const UPLOAD_DIR = process.env.UPLOAD_DIR || "/usr/src/app/uploads";
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 /* =========================
    JOBS STORAGE
 ========================= */
 const jobs = {}; 
-// jobId: { status, logs, error, startedAt }
+// jobId: { status, logs, error, startedAt, text }
 
 /* =========================
    UTILS
@@ -38,29 +37,37 @@ function log(msg, jobId = "SYSTEM") {
    CHECK PYTHON & TOOLS
 ========================= */
 function checkPythonTools() {
-  exec("python3 --version", (_, out) => log(`🐍 ${out?.trim()}`));
-  exec("tesseract --version", (_, out) =>
-    log(`🎯 ${out?.split("\n")[0]}`)
-  );
-  exec("pdftotext -v", () => log("📄 pdftotext OK"));
+  spawn("python3", ["--version"]).stdout.on("data", (data) => log(`🐍 ${data.toString().trim()}`));
+  spawn("tesseract", ["--version"]).stdout.on("data", (data) => log(`🎯 ${data.toString().split("\n")[0]}`));
 }
 
 /* =========================
-   RUN PYTHON (MAIN_PARALLEL)
+   MULTER UPLOAD
 ========================= */
-function runPythonParallel(filePath, jobId) {
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `upload_${crypto.randomUUID()}${ext}`);
+  },
+});
+const upload = multer({ storage });
+
+/* =========================
+   RUN PYTHON (main_parallel.py)
+========================= */
+function runPythonParallel(filePath, jobId, callback) {
   log(`🚀 Lancement main_parallel.py -> ${filePath}`, jobId);
 
-  const py = spawn("python3", [
-    path.join(__dirname, "main_parallel.py"),
-    filePath,
-  ]);
+  const py = spawn("python3", [path.join(__dirname, "main_parallel.py"), filePath]);
 
   jobs[jobId].logs = "";
+  let fullText = "";
 
   py.stdout.on("data", (data) => {
     const msg = data.toString();
     jobs[jobId].logs += msg;
+    fullText += msg;
     log(`🐍 STDOUT: ${msg.trim()}`, jobId);
   });
 
@@ -73,6 +80,16 @@ function runPythonParallel(filePath, jobId) {
   py.on("close", (code) => {
     log(`🏁 Python terminé (code=${code})`, jobId);
     jobs[jobId].status = code === 0 ? "done" : "error";
+
+    // Filtrage caractères autorisés (lettres accentuées + chiffres + espace)
+    const filtered = fullText
+      .normalize("NFD")
+      .replace(/[^a-zA-Z0-9À-ÖØ-öø-ÿ\s]/g, "")
+      .trim();
+
+    jobs[jobId].text = filtered;
+
+    if (callback) callback(filtered);
   });
 
   py.on("error", (err) => {
@@ -83,95 +100,43 @@ function runPythonParallel(filePath, jobId) {
 }
 
 /* =========================
-   GET /
+   ROUTES
 ========================= */
+
+// GET /
 app.get("/", (_, res) => {
-  res.send("OCR Server (main_parallel.py) running");
+  res.send("OCR Server ready for Wix uploads");
 });
 
-/* =========================
-   POST /ocr/start
-========================= */
-app.post("/ocr/start", async (req, res) => {
-  log("➡️ POST /ocr/start reçu");
+// POST /ocr/upload -> Wix envoie le fichier
+app.post("/ocr/upload", upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });
 
-  const { fileUrl } = req.body;
-  if (!fileUrl) {
-    return res.status(400).json({ error: "fileUrl manquante" });
-  }
-
+  const filePath = req.file.path;
   const jobId = crypto.randomUUID();
+
   jobs[jobId] = {
     status: "processing",
     logs: "",
     error: null,
     startedAt: Date.now(),
+    text: "",
   };
 
-  log(`🆔 JOB CRÉÉ`, jobId);
+  log(`🆔 Nouveau job ${jobId} pour ${filePath}`, jobId);
 
-  (async () => {
-    try {
-      log(`📥 Téléchargement fichier : ${fileUrl}`, jobId);
+  runPythonParallel(filePath, jobId, (filteredText) => {
+    log(`✅ Texte filtré prêt à être envoyé à Wix (${filteredText.length} caractères)`, jobId);
+  });
 
-      const response = await axios.get(fileUrl, { responseType: "stream" });
-      const ext = path.extname(fileUrl) || ".pdf";
-      const filePath = path.join(UPLOAD_DIR, `${jobId}${ext}`);
-
-      await new Promise((resolve, reject) => {
-        const writer = fs.createWriteStream(filePath);
-        response.data.pipe(writer);
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-      });
-
-      log(`✅ Fichier prêt : ${filePath}`, jobId);
-
-      // 🔥 LANCEMENT UNIQUE
-      runPythonParallel(filePath, jobId);
-    } catch (err) {
-      log(`❌ ERREUR JOB : ${err.message}`, jobId);
-      jobs[jobId].status = "error";
-      jobs[jobId].error = err.message;
-    }
-  })();
-
-  res.json({ jobId });
+  res.json({ jobId, file: req.file.originalname });
 });
 
-/* =========================
-   GET /ocr/status/:jobId
-========================= */
+// GET /ocr/status/:jobId
 app.get("/ocr/status/:jobId", (req, res) => {
   const job = jobs[req.params.jobId];
-  if (!job) {
-    return res.status(404).json({ status: "unknown" });
-  }
+  if (!job) return res.status(404).json({ status: "unknown" });
   res.json(job);
-});
-
-/* =========================
-   GET /ocr/testB
-========================= */
-app.get("/ocr/testB", (_, res) => {
-  const localFile = path.join(__dirname, "test", "B.pdf");
-
-  if (!fs.existsSync(localFile)) {
-    return res.status(404).json({ error: "test/B.pdf introuvable" });
-  }
-
-  const jobId = crypto.randomUUID();
-  jobs[jobId] = {
-    status: "processing",
-    logs: "",
-    error: null,
-    startedAt: Date.now(),
-  };
-
-  log(`🧪 TEST LOCAL B.pdf`, jobId);
-  runPythonParallel(localFile, jobId);
-
-  res.json({ jobId });
 });
 
 /* =========================
@@ -192,6 +157,4 @@ setInterval(() => {
 ========================= */
 checkPythonTools();
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  log(`🚀 OCR Polling Server running on port ${PORT}`)
-);
+app.listen(PORT, () => log(`🚀 OCR Server running on port ${PORT}`));
