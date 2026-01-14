@@ -43,7 +43,7 @@ function checkPythonTools() {
 }
 
 /* =========================
-   MULTER UPLOAD (optionnel si Wix envoie directement un fichier)
+   MULTER UPLOAD
 ========================= */
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
@@ -55,67 +55,12 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 /* =========================
-   RUN PYTHON (main_parallel.py)
+   RUN PYTHON (STREAMING)
 ========================= */
-/* =========================
-   RUN PYTHON (main_parallel.py) - STREAMING
-========================= */
-function runPythonParallel(filePath, jobId, callback) {
+function runPythonParallel(filePath, jobId) {
   log(`🚀 Lancement main_parallel.py -> ${filePath}`, jobId);
 
   const py = spawn("python3", [path.join(__dirname, "main_parallel.py"), filePath]);
-
-  jobs[jobId].logs = "";
-  jobs[jobId].text = "";
-  jobs[jobId].status = "processing";
-
-  // Fonction pour traiter chaque ligne et l'afficher immédiatement
-  const handleData = (data, source) => {
-    const lines = data.toString().split(/\r?\n/);
-    lines.forEach(line => {
-      if (line.trim()) {
-        log(`🐍 ${source}: ${line}`, jobId);
-        // On append le texte filtré dès qu'on le voit
-        if (source === "STDOUT") {
-          jobs[jobId].text += line + "\n";
-          // si callback fourni, on peut l'appeler à chaque ligne
-          if (callback) callback(jobs[jobId].text);
-        }
-      }
-    });
-  };
-
-  py.stdout.on("data", (data) => handleData(data, "STDOUT"));
-  py.stderr.on("data", (data) => handleData(data, "STDERR"));
-
-  py.on("close", (code) => {
-    log(`🏁 Python terminé (code=${code})`, jobId);
-    jobs[jobId].status = code === 0 ? "done" : "error";
-  });
-
-  py.on("error", (err) => {
-    log(`❌ ERREUR PYTHON: ${err.message}`, jobId);
-    jobs[jobId].status = "error";
-    jobs[jobId].error = err.message;
-  });
-}
-
-
-/* =========================
-   ROUTES
-========================= */
-
-// GET /
-app.get("/", (_, res) => {
-  res.send("OCR Server ready for Wix uploads");
-});
-
-// POST /ocr/upload -> pour les fichiers envoyés directement
-app.post("/ocr/upload", upload.single("file"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });
-
-  const filePath = req.file.path;
-  const jobId = crypto.randomUUID();
 
   jobs[jobId] = {
     status: "processing",
@@ -125,17 +70,47 @@ app.post("/ocr/upload", upload.single("file"), (req, res) => {
     text: "",
   };
 
-  log(`🆔 Nouveau job ${jobId} pour ${filePath}`, jobId);
+  const handleData = (data, source) => {
+    const lines = data.toString().split(/\r?\n/);
+    lines.forEach(line => {
+      if (line.trim()) {
+        log(`🐍 ${source}: ${line}`, jobId);
+        if (source === "STDOUT") jobs[jobId].text += line + "\n";
+        jobs[jobId].logs += line + "\n";
+      }
+    });
+  };
 
-  runPythonParallel(filePath, jobId, (filteredText) => {
-    log(`✅ Texte filtré prêt à être envoyé à Wix (${filteredText.length} caractères)`, jobId);
+  py.stdout.on("data", (data) => handleData(data, "STDOUT"));
+  py.stderr.on("data", (data) => handleData(data, "STDERR"));
+
+  py.on("close", (code) => {
+    jobs[jobId].status = code === 0 ? "done" : "error";
+    log(`🏁 Python terminé (code=${code})`, jobId);
   });
 
-  res.json({ jobId, file: req.file.originalname });
+  py.on("error", (err) => {
+    jobs[jobId].status = "error";
+    jobs[jobId].error = err.message;
+    log(`❌ ERREUR PYTHON: ${err.message}`, jobId);
+  });
+}
+
+/* =========================
+   ROUTES
+========================= */
+app.get("/", (_, res) => res.send("OCR Server ready"));
+
+app.post("/ocr/upload", upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });
+
+  const jobId = crypto.randomUUID();
+  runPythonParallel(req.file.path, jobId);
+
+  // Réponse immédiate avec jobId
+  res.json({ jobId });
 });
 
-// POST /ocr/from-url -> Wix envoie une URL publique
-// POST /ocr/from-url -> Wix envoie une URL publique
 app.post("/ocr/from-url", async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: "URL manquante" });
@@ -143,7 +118,6 @@ app.post("/ocr/from-url", async (req, res) => {
   try {
     const ext = path.extname(url.split("?")[0]) || ".bin";
     const filePath = path.join(UPLOAD_DIR, `url_${crypto.randomUUID()}${ext}`);
-
     const proto = url.startsWith("https") ? https : http;
     const file = fs.createWriteStream(filePath);
 
@@ -152,36 +126,42 @@ app.post("/ocr/from-url", async (req, res) => {
 
       file.on("finish", () => {
         file.close();
-
         const jobId = crypto.randomUUID();
-        jobs[jobId] = {
-          status: "processing",
-          logs: "",
-          error: null,
-          startedAt: Date.now(),
-          text: "",
-        };
-
-        // 🚀 Lancer le traitement Python
         runPythonParallel(filePath, jobId);
-
-        // 🔹 Réponse initiale immédiate avec le jobId
         res.json({
           status: "processing",
           jobId,
-          message: "Le traitement a commencé, récupérez le texte via /ocr/status/:jobId",
+          message: "Le traitement a commencé, récupérez le texte via /ocr/stream/:jobId",
         });
       });
     }).on("error", (err) => {
       fs.unlink(filePath, () => {});
       res.status(500).json({ error: err.message });
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// SSE pour récupérer le texte en direct
+app.get("/ocr/stream/:jobId", (req, res) => {
+  const { jobId } = req.params;
+  const job = jobs[jobId];
+  if (!job) return res.status(404).send("Job inconnu");
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const interval = setInterval(() => {
+    res.write(`data: ${JSON.stringify({ text: job.text, status: job.status })}\n\n`);
+    if (job.status !== "processing") {
+      clearInterval(interval);
+      res.write(`event: done\ndata: ${JSON.stringify({ text: job.text, status: job.status })}\n\n`);
+      res.end();
+    }
+  }, 200); // update toutes les 200ms
+});
 
 // GET /ocr/status/:jobId -> check status
 app.get("/ocr/status/:jobId", (req, res) => {
