@@ -23,8 +23,8 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 /* =========================
    JOBS STORAGE
 ========================= */
-const jobs = {}; 
-// jobId: { status, logs, error, startedAt, text }
+const jobs = {};
+// jobId: { status, logs, error, startedAt, ... }
 
 /* =========================
    UTILS
@@ -38,8 +38,12 @@ function log(msg, jobId = "SYSTEM") {
    CHECK PYTHON & TOOLS
 ========================= */
 function checkPythonTools() {
-  spawn("python3", ["--version"]).stdout.on("data", (data) => log(`🐍 ${data.toString().trim()}`));
-  spawn("tesseract", ["--version"]).stdout.on("data", (data) => log(`🎯 ${data.toString().split("\n")[0]}`));
+  spawn("python3", ["--version"]).stdout.on("data", (data) =>
+    log(`🐍 ${data.toString().trim()}`)
+  );
+  spawn("tesseract", ["--version"]).stdout.on("data", (data) =>
+    log(`🎯 ${data.toString().split("\n")[0]}`)
+  );
 }
 
 /* =========================
@@ -62,7 +66,7 @@ function runPythonParallel(filePath, jobId) {
 
   const py = spawn("python3", [
     path.join(__dirname, "main_parallel.py"),
-    filePath
+    filePath,
   ]);
 
   jobs[jobId] = {
@@ -75,12 +79,11 @@ function runPythonParallel(filePath, jobId) {
     ocrLines: [],
 
     mergedPdfText: "",
+    mergedPdfTextSmart: "", // ✅ TEXTE SMART À EXPOSER
     mergedOcrText: "",
 
     pdfDone: false,
     ocrDone: false,
-
-    text: "" // TEXTE FINAL SMART POUR WIX
   };
 
   const handleLine = (line, source) => {
@@ -88,7 +91,7 @@ function runPythonParallel(filePath, jobId) {
     jobs[jobId].logs += line + "\n";
 
     /* =======================
-       PDF TEXT
+       PDF TEXT BRUT
     ======================= */
     if (line.startsWith("[PDF-TEXT]")) {
       jobs[jobId].pdfLines.push(line.replace("[PDF-TEXT]", "").trim());
@@ -99,14 +102,32 @@ function runPythonParallel(filePath, jobId) {
       jobs[jobId].mergedPdfText = jobs[jobId].pdfLines.join("\n");
       jobs[jobId].pdfDone = true;
 
-      log("[PDF-TEXT-END]", jobId);
       log("📄📄📄 PDF TEXT MERGED (FULL CONTENT) 📄📄📄", jobId);
       log(jobs[jobId].mergedPdfText, jobId);
       log("📄📄📄 END PDF TEXT MERGED 📄📄📄", jobId);
+      return;
+    }
 
-      // 🔹 TEXTE FINAL TEMPORAIRE POUR WIX
-      jobs[jobId].text = jobs[jobId].mergedPdfText;
+    /* =======================
+       PDF TEXT SMART (CELUI QUE TU VEUX)
+    ======================= */
+    if (line === "📄📄📄 PDF TEXT MERGED CLEANED & SMART (FULL CONTENT) 📄📄📄") {
+      jobs[jobId]._collectSmart = true;
+      jobs[jobId]._smartBuffer = [];
+      return;
+    }
 
+    if (jobs[jobId]._collectSmart) {
+      if (line === "📄📄📄 END PDF TEXT MERGED CLEANED & SMART 📄📄📄") {
+        jobs[jobId].mergedPdfTextSmart = jobs[jobId]._smartBuffer.join("\n").trim();
+        jobs[jobId]._collectSmart = false;
+
+        log("✅ TEXTE SMART STOCKÉ POUR WIX", jobId);
+        log(jobs[jobId].mergedPdfTextSmart, jobId);
+        return;
+      }
+
+      jobs[jobId]._smartBuffer.push(line);
       return;
     }
 
@@ -122,43 +143,38 @@ function runPythonParallel(filePath, jobId) {
       jobs[jobId].mergedOcrText = jobs[jobId].ocrLines.join("\n");
       jobs[jobId].ocrDone = true;
 
-      log(`🧠 OCR MERGED READY (${jobs[jobId].mergedOcrText.length} caractères):\n${jobs[jobId].mergedOcrText}`, jobId);
-
-      // 🔹 TEXTE FINAL POUR WIX : PDF + OCR si PDF terminé, sinon juste OCR
-      if (jobs[jobId].pdfDone) {
-        jobs[jobId].text = `${jobs[jobId].mergedPdfText}\n${jobs[jobId].mergedOcrText}`.trim();
-      } else {
-        jobs[jobId].text = jobs[jobId].mergedOcrText;
-      }
-
+      log(
+        `🧠 OCR MERGED READY (${jobs[jobId].mergedOcrText.length} caractères)`,
+        jobId
+      );
       return;
     }
   };
 
-  py.stdout.on("data", data => {
+  py.stdout.on("data", (data) => {
     data
       .toString()
       .split(/\r?\n/)
-      .map(l => l.trim())
+      .map((l) => l.trim())
       .filter(Boolean)
-      .forEach(line => handleLine(line, "STDOUT"));
+      .forEach((line) => handleLine(line, "STDOUT"));
   });
 
-  py.stderr.on("data", data => {
+  py.stderr.on("data", (data) => {
     data
       .toString()
       .split(/\r?\n/)
-      .map(l => l.trim())
+      .map((l) => l.trim())
       .filter(Boolean)
-      .forEach(line => handleLine(line, "STDERR"));
+      .forEach((line) => handleLine(line, "STDERR"));
   });
 
-  py.on("close", code => {
+  py.on("close", (code) => {
     log(`🏁 Python terminé (code=${code})`, jobId);
     jobs[jobId].status = code === 0 ? "done" : "error";
   });
 
-  py.on("error", err => {
+  py.on("error", (err) => {
     log(`❌ ERREUR PYTHON: ${err.message}`, jobId);
     jobs[jobId].status = "error";
     jobs[jobId].error = err.message;
@@ -169,16 +185,6 @@ function runPythonParallel(filePath, jobId) {
    ROUTES
 ========================= */
 app.get("/", (_, res) => res.send("OCR Server ready"));
-
-app.post("/ocr/upload", upload.single("file"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu" });
-
-  const jobId = crypto.randomUUID();
-  runPythonParallel(req.file.path, jobId);
-
-  // Réponse immédiate avec jobId
-  res.json({ jobId });
-});
 
 app.post("/ocr/from-url", async (req, res) => {
   const { url } = req.body;
@@ -197,62 +203,30 @@ app.post("/ocr/from-url", async (req, res) => {
         file.close();
         const jobId = crypto.randomUUID();
         runPythonParallel(filePath, jobId);
-        res.json({
-          status: "processing",
-          jobId,
-          message: "Le traitement a commencé, récupérez le texte via /ocr/stream/:jobId",
-        });
+        res.json({ jobId });
       });
-    }).on("error", (err) => {
-      fs.unlink(filePath, () => {});
-      res.status(500).json({ error: err.message });
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// SSE pour récupérer le texte en direct
-app.get("/ocr/stream/:jobId", (req, res) => {
-  const { jobId } = req.params;
-  const job = jobs[jobId];
-  if (!job) return res.status(404).send("Job inconnu");
-
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-
-  const interval = setInterval(() => {
-    res.write(`data: ${JSON.stringify({ text: job.text, status: job.status })}\n\n`);
-    if (job.status !== "processing") {
-      clearInterval(interval);
-      res.write(`event: done\ndata: ${JSON.stringify({ text: job.text, status: job.status })}\n\n`);
-      res.end();
-    }
-  }, 200); // update toutes les 200ms
-});
-
-// GET /ocr/status/:jobId -> check status
-app.get("/ocr/status/:jobId", (req, res) => {
-  const job = jobs[req.params.jobId];
-  if (!job) return res.status(404).json({ status: "unknown" });
-  res.json(job);
-});
-
-// GET /ocr/result/:jobId -> retourne le texte smarter final
+/* =========================
+   RESULT ROUTE (SMART TEXT)
+========================= */
 app.get("/ocr/result/:jobId", (req, res) => {
   const { jobId } = req.params;
   const job = jobs[jobId];
   if (!job) return res.status(404).json({ error: "Job inconnu" });
 
-  if (job.status !== "done" || !job.mergedOcrText) {
-    return res.status(202).json({ status: "processing" });
+  if (job.mergedPdfTextSmart) {
+    return res.json({
+      status: "done",
+      text: job.mergedPdfTextSmart,
+    });
   }
 
-  return res.json({
-    status: "done",
-    text: job.mergedOcrText  // ici ton texte déjà “smarter”
-  });
+  return res.status(202).json({ status: "processing" });
 });
 
 /* =========================
