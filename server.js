@@ -184,6 +184,12 @@ function runPythonParallel(filePath, jobId) {
 /* =========================
    ROUTES
 ========================= */
+
+app.get("/ping", (req, res) => {
+  console.log("🟢 Ping reçu – service réveillé");
+  res.status(200).send("awake");
+});
+
 app.get("/", (_, res) => res.send("OCR Server ready"));
 
 app.post("/ocr/from-url", async (req, res) => {
