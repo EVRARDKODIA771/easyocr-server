@@ -239,6 +239,22 @@ app.get("/ocr/status/:jobId", (req, res) => {
   res.json(job);
 });
 
+// GET /ocr/result/:jobId -> retourne le texte smarter final
+app.get("/ocr/result/:jobId", (req, res) => {
+  const { jobId } = req.params;
+  const job = jobs[jobId];
+  if (!job) return res.status(404).json({ error: "Job inconnu" });
+
+  if (job.status !== "done" || !job.mergedOcrText) {
+    return res.status(202).json({ status: "processing" });
+  }
+
+  return res.json({
+    status: "done",
+    text: job.mergedOcrText  // ici ton texte déjà “smarter”
+  });
+});
+
 /* =========================
    CLEANUP JOBS
 ========================= */
