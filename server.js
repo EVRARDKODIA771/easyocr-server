@@ -55,7 +55,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 /* =========================
-   RUN PYTHON (STREAMING)
+   RUN PYTHON (STREAMING + SMART TEXT)
 ========================= */
 function runPythonParallel(filePath, jobId) {
   log(`🚀 Lancement main_parallel.py -> ${filePath}`, jobId);
@@ -78,7 +78,9 @@ function runPythonParallel(filePath, jobId) {
     mergedOcrText: "",
 
     pdfDone: false,
-    ocrDone: false
+    ocrDone: false,
+
+    text: "" // TEXTE FINAL SMART POUR WIX
   };
 
   const handleLine = (line, source) => {
@@ -88,11 +90,8 @@ function runPythonParallel(filePath, jobId) {
     /* =======================
        PDF TEXT
     ======================= */
-
     if (line.startsWith("[PDF-TEXT]")) {
-      jobs[jobId].pdfLines.push(
-        line.replace("[PDF-TEXT]", "").trim()
-      );
+      jobs[jobId].pdfLines.push(line.replace("[PDF-TEXT]", "").trim());
       return;
     }
 
@@ -100,11 +99,13 @@ function runPythonParallel(filePath, jobId) {
       jobs[jobId].mergedPdfText = jobs[jobId].pdfLines.join("\n");
       jobs[jobId].pdfDone = true;
 
-      // 🔥 AFFICHAGE COMPLET IMMÉDIAT
       log("[PDF-TEXT-END]", jobId);
       log("📄📄📄 PDF TEXT MERGED (FULL CONTENT) 📄📄📄", jobId);
       log(jobs[jobId].mergedPdfText, jobId);
       log("📄📄📄 END PDF TEXT MERGED 📄📄📄", jobId);
+
+      // 🔹 TEXTE FINAL TEMPORAIRE POUR WIX
+      jobs[jobId].text = jobs[jobId].mergedPdfText;
 
       return;
     }
@@ -112,11 +113,8 @@ function runPythonParallel(filePath, jobId) {
     /* =======================
        OCR
     ======================= */
-
     if (line.startsWith("[OCR]")) {
-      jobs[jobId].ocrLines.push(
-        line.replace("[OCR]", "").trim()
-      );
+      jobs[jobId].ocrLines.push(line.replace("[OCR]", "").trim());
       return;
     }
 
@@ -124,10 +122,15 @@ function runPythonParallel(filePath, jobId) {
       jobs[jobId].mergedOcrText = jobs[jobId].ocrLines.join("\n");
       jobs[jobId].ocrDone = true;
 
-      log(
-        `🧠 OCR MERGED READY (${jobs[jobId].mergedOcrText.length} caractères):\n${jobs[jobId].mergedOcrText}`,
-        jobId
-      );
+      log(`🧠 OCR MERGED READY (${jobs[jobId].mergedOcrText.length} caractères):\n${jobs[jobId].mergedOcrText}`, jobId);
+
+      // 🔹 TEXTE FINAL POUR WIX : PDF + OCR si PDF terminé, sinon juste OCR
+      if (jobs[jobId].pdfDone) {
+        jobs[jobId].text = `${jobs[jobId].mergedPdfText}\n${jobs[jobId].mergedOcrText}`.trim();
+      } else {
+        jobs[jobId].text = jobs[jobId].mergedOcrText;
+      }
+
       return;
     }
   };
@@ -161,7 +164,6 @@ function runPythonParallel(filePath, jobId) {
     jobs[jobId].error = err.message;
   });
 }
-
 
 /* =========================
    ROUTES
